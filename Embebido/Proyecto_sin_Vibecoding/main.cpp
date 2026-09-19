@@ -1,92 +1,301 @@
-// Definicion de pines y conexiones
-#include <HardwareSerial.h>
-#include <math.h>
 #include <Arduino.h>
+#include <math.h>
+#include <LiquidCrystal_I2C.h>
 
+// Pines Actuadores
+#define PIN_TRANSISTOR_REFRIGERACION 12
+#define PIN_RELE 26
+#define PIN_LED 27
 
-#define LED_RELE 27
-#define RELE 26
-#define LED_TEMPERATURA 25
-#define POTENCIOMETRO 34
-#define SENSOR_TEMPERATURA 35
-#define SCL_LED 22
-#define SDA_LED 21
-#define PWM_FRECUENCIA 5000
-#define PWM_RESOLUCION 8
-#define CANALTEMPERATURA 0 
-#define TEMP_MAX_COOLER 60
-#define TEMP_MIN_COOLER 25
-#define POTENCIA_MAX_COOLER 255
-#define POTENCIA_INI_COOLER 26
-#define POTENCIA_MIN_COOLER 0 
+// Pines Sensores
+#define PIN_SENSOR_CORRIENTE 32
+#define PIN_SENSOR_TEMPERATURA 35
 
+// Umbrales Temperatura
+#define UMBRAL_TEMP_SUPERIOR_HABILITAR_REFRIGERACION 60
+#define UMBRAL_TEMP_INFERIOR_DESHABILITAR_REFRIGERACION 30
+#define UMBRAL_TEMP_CRITICA 75
 
+// Constantes Sensor de Temperatura
+#define BETA 3950
 
-float temp;
+// Constantes Sensor de Corriente ACS712
+#define SENSIBILIDAD 0.185
 
-void setup() {
-  Serial.begin(115200);
-  //Pines OUTPUT
-  pinMode(RELE,OUTPUT);
-  pinMode(LED_RELE,OUTPUT);
+// Constantes Display
+#define DISPLAY_COLUMNAS 16
+#define DISPLAY_FILAS 2
+#define DISPLAY_IC2_ADDRESS 0x27
+#define DISPLAY_TIEMPO_ACTUALIZACION_TEMP_MS 100
+#define DISPLAY_CODIGO_CARACTER_GRADOS 223
 
-  //Pines INPUT
-  pinMode(SENSOR_TEMPERATURA,INPUT);
-  pinMode(POTENCIOMETRO,INPUT);
+enum estado
+{
+  ESTADO_DISPONIBLE,
+  ESTADO_ACTIVO,
+  ESTADO_DESHABILITADO,
+  ESTADO_ENFRIAMIENTO
+};
 
-  //Se inicializa el led de temperatura
-  ledcSetup(CANALTEMPERATURA, PWM_FRECUENCIA, PWM_RESOLUCION);
-  ledcAttachPin(LED_TEMPERATURA, CANALTEMPERATURA);
+String estado_desc[] = {
+    "ESTADO_DISPONIBLE",
+    "ESTADO_ACTIVO",
+    "ESTADO_DESHABILITADO",
+    "ESTADO_ENFRIAMIENTO"};
+
+enum evento
+{
+  EVENTO_AUTORIZACION,
+  EVENTO_FINALIZAR_USO,
+  EVENTO_CREDITO_AGOTADO,
+  EVENTO_TIMEOUT_SIN_USO,
+  EVENTO_DESHABILITADO_MANUAL,
+  EVENTO_HABILITADO_MANUAL,
+  EVENTO_TEMPERATURA_ALTA,
+  EVENTO_TEMPERATURA_NORMAL,
+  EVENTO_TEMPERATURA_CRITICA,
+  EVENTO_ACTUALIZAR_DISPLAY,
+  EVENTO_CONTINUE
+};
+
+String evento_desc[] = {
+    "EVENTO_AUTORIZACION",
+    "EVENTO_FINALIZAR_USO",
+    "EVENTO_CREDITO_AGOTADO",
+    "EVENTO_TIMEOUT_SIN_USO",
+    "EVENTO_DESHABILITADO_MANUAL",
+    "EVENTO_HABILITADO_MANUAL",
+    "EVENTO_TEMPERATURA_ALTA",
+    "EVENTO_TEMPERATURA_NORMAL",
+    "EVENTO_TEMPERATURA_CRITICA",
+    "EVENTO_ACTUALIZAR_DISPLAY",
+    "EVENTO_CONTINUE"};
+
+estado estado_actual = ESTADO_DISPONIBLE;
+evento evento_actual;
+
+unsigned long tiempo_anterior_display;
+unsigned long tiempo_actual_display;
+
+LiquidCrystal_I2C lcd(DISPLAY_IC2_ADDRESS, DISPLAY_COLUMNAS, DISPLAY_FILAS);
+
+float temperatura;
+float corriente_disponible;
+
+void iniciar_display()
+{
+  lcd.init();
+  lcd.backlight();
+  lcd.printf("TEMP - %cC", (char)DISPLAY_CODIGO_CARACTER_GRADOS, temperatura);
 }
-//Tendriamoos que chequearla, la saque de claude code
-float leerTemperaturaC() {
-  int adc = analogRead(SENSOR_TEMPERATURA);
 
-  if (adc < 1) adc = 1;
-  if (adc > 4094) adc = 4094;
-
-  float r = 1.0f / (4095.0f / (float)adc - 1.0f);
-  return 1.0f / (log(r) / 3950.0f + 1.0f / 298.15f) - 273.15f;
+void log_estado_evento()
+{
+  Serial.printf("Estado: %s, Evento: %s\r\n", estado_desc[estado_actual].c_str(), evento_desc[evento_actual].c_str());
 }
 
-void habilitarCarga(bool habilitar) {
-  digitalWrite(RELE, habilitar ? HIGH : LOW);
-  digitalWrite(LED_RELE, habilitar ? HIGH : LOW);
-}
-void controlarTemperatura(){
-  temp = leerTemperaturaC();
+float leer_temperatura()
+{
+  int lectura_sensor_temperatura = analogRead(PIN_SENSOR_TEMPERATURA);
+  float temperatura_celsius = 1 / (log(1 / (4095.0 / lectura_sensor_temperatura - 1)) / BETA + 1.0 / 298.15) - 273.15;
 
-  if( temp >= 65){
-    //Apagar todo por relay
-    //Funcion ShutDown o devuelve un valor y el main distribuye decide? Iria por la segunda para no sobrecargar la funcion.
-    ledcWrite(CANALTEMPERATURA,POTENCIA_MAX_COOLER);
+  return temperatura_celsius;
+}
+
+bool verificar_sensor_temperatura()
+{
+  temperatura = leer_temperatura();
+
+  if (temperatura >= UMBRAL_TEMP_CRITICA)
+  {
+    evento_actual = EVENTO_TEMPERATURA_CRITICA;
+    return true;
   }
-  else if(temp < 25)
-    ledcWrite(CANALTEMPERATURA,POTENCIA_MIN_COOLER);
-  else
-    ledcWrite(CANALTEMPERATURA,map((int)temp, TEMP_MIN_COOLER, TEMP_MAX_COOLER, POTENCIA_INI_COOLER, POTENCIA_MAX_COOLER));
-  delay(100);
+  if (temperatura >= UMBRAL_TEMP_SUPERIOR_HABILITAR_REFRIGERACION)
+  {
+    evento_actual = EVENTO_TEMPERATURA_ALTA;
+    return true;
+  }
+  if (temperatura <= UMBRAL_TEMP_INFERIOR_DESHABILITAR_REFRIGERACION)
+  {
+    evento_actual = EVENTO_TEMPERATURA_NORMAL;
+    return true;
+  }
 
+  return false;
 }
 
-void loop() {
- 
-  //Aca deberia ir la logica condicional para saber si el tomacorrientes deberia ser activado
-  /* while( ! HayPago ){
-    continue;
-  } */
-  //Mientras no hay pago, no analizo ni evaluo nada, me quedo en el while.
+bool verificar_actualizacion_display()
+{
+  tiempo_actual_display = millis();
 
-  //Inicia el consumo de energia
-  habilitarCarga(true);
-  delay(1000);
-  habilitarCarga(false);
-  //Control de temperatura 
-  controlarTemperatura();
-  delay(1000);
+  if (tiempo_actual_display - tiempo_anterior_display > DISPLAY_TIEMPO_ACTUALIZACION_TEMP_MS)
+  {
+    tiempo_anterior_display = tiempo_actual_display;
+    evento_actual = EVENTO_ACTUALIZAR_DISPLAY;
+    return true;
+  }
 
-  
-  //Prende relay cuando alguien enchufa algo
+  return false;
+}
 
+void generar_evento()
+{
+  if (corriente_disponible <= 0)
+  {
+    evento_actual = EVENTO_CREDITO_AGOTADO;
+  }
+  if (verificar_actualizacion_display() || verificar_sensor_temperatura())
+  {
+    return;
+  }
 
+  evento_actual = EVENTO_CONTINUE;
+}
+
+void actualizar_display()
+{
+  lcd.setCursor(5, 0);
+  lcd.printf("%.1f %cC", temperatura, (char)DISPLAY_CODIGO_CARACTER_GRADOS);
+}
+
+void iniciar()
+{
+  Serial.begin(115200);
+
+  pinMode(PIN_TRANSISTOR_REFRIGERACION, OUTPUT);
+  pinMode(PIN_RELE, OUTPUT);
+  pinMode(PIN_LED, OUTPUT);
+  pinMode(PIN_SENSOR_CORRIENTE, INPUT);
+  pinMode(PIN_SENSOR_TEMPERATURA, INPUT);
+
+  iniciar_display();
+}
+
+void fsm()
+{
+  generar_evento();
+
+  log_estado_evento();
+
+  switch (estado_actual)
+  {
+  case ESTADO_DISPONIBLE:
+    switch (evento_actual)
+    {
+    case EVENTO_DESHABILITADO_MANUAL:
+      estado_actual = ESTADO_DESHABILITADO;
+      break;
+    case EVENTO_AUTORIZACION:
+      digitalWrite(PIN_RELE, HIGH);
+      digitalWrite(PIN_LED, HIGH);
+      estado_actual = ESTADO_ACTIVO;
+      break;
+    case EVENTO_CONTINUE:
+      break;
+    default:
+      break;
+    }
+    break;
+  case ESTADO_ACTIVO:
+    switch (evento_actual)
+    {
+    case EVENTO_FINALIZAR_USO:
+      digitalWrite(PIN_RELE, LOW);
+      digitalWrite(PIN_LED, LOW);
+      estado_actual = ESTADO_DISPONIBLE;
+      break;
+    case EVENTO_CREDITO_AGOTADO:
+      digitalWrite(PIN_RELE, LOW);
+      digitalWrite(PIN_LED, LOW);
+      estado_actual = ESTADO_DISPONIBLE;
+      break;
+    case EVENTO_TIMEOUT_SIN_USO:
+      digitalWrite(PIN_RELE, LOW);
+      digitalWrite(PIN_LED, LOW);
+      estado_actual = ESTADO_DISPONIBLE;
+      break;
+    case EVENTO_TEMPERATURA_ALTA:
+      digitalWrite(PIN_RELE, LOW);
+      estado_actual = ESTADO_ENFRIAMIENTO;
+      break;
+    case EVENTO_DESHABILITADO_MANUAL:
+      digitalWrite(PIN_RELE, LOW);
+      digitalWrite(PIN_LED, LOW);
+      estado_actual = ESTADO_DESHABILITADO;
+      break;
+    case EVENTO_ACTUALIZAR_DISPLAY:
+      actualizar_display();
+      break;
+    case EVENTO_CONTINUE:
+      break;
+    default:
+      break;
+    }
+    break;
+  case ESTADO_DESHABILITADO:
+    switch (evento_actual)
+    {
+    case EVENTO_HABILITADO_MANUAL:
+      estado_actual = ESTADO_DISPONIBLE;
+      break;
+    case EVENTO_CONTINUE:
+      break;
+    default:
+      break;
+    }
+    break;
+  case ESTADO_ENFRIAMIENTO:
+    switch (evento_actual)
+    {
+    case EVENTO_FINALIZAR_USO:
+      digitalWrite(PIN_RELE, LOW);
+      digitalWrite(PIN_LED, LOW);
+      estado_actual = ESTADO_DISPONIBLE;
+      break;
+    case EVENTO_CREDITO_AGOTADO:
+      digitalWrite(PIN_RELE, LOW);
+      digitalWrite(PIN_LED, LOW);
+      estado_actual = ESTADO_DISPONIBLE;
+      break;
+    case EVENTO_TIMEOUT_SIN_USO:
+      digitalWrite(PIN_RELE, LOW);
+      digitalWrite(PIN_LED, LOW);
+      estado_actual = ESTADO_DISPONIBLE;
+      break;
+    case EVENTO_TEMPERATURA_NORMAL:
+      digitalWrite(PIN_RELE, HIGH);
+      estado_actual = ESTADO_ACTIVO;
+      break;
+    case EVENTO_DESHABILITADO_MANUAL:
+      digitalWrite(PIN_RELE, LOW);
+      digitalWrite(PIN_LED, LOW);
+      estado_actual = ESTADO_DESHABILITADO;
+      break;
+    case EVENTO_TEMPERATURA_CRITICA:
+      digitalWrite(PIN_RELE, LOW);
+      digitalWrite(PIN_LED, LOW);
+      estado_actual = ESTADO_DESHABILITADO;
+      break;
+    case EVENTO_ACTUALIZAR_DISPLAY:
+      actualizar_display();
+      break;
+    case EVENTO_CONTINUE:
+      break;
+    default:
+      break;
+    }
+  default:
+    break;
+  }
+}
+
+void setup()
+{
+  iniciar();
+}
+
+void loop()
+{
+  fsm();
 }
