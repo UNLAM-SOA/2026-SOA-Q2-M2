@@ -29,7 +29,9 @@
 #define DISPLAY_TIEMPO_ACTUALIZACION_TEMP_MS 100
 #define DISPLAY_CODIGO_CARACTER_GRADOS 223
 
-enum estado
+#define CANTIDAD_VERIFICACIONES 3
+
+enum estado_sistema
 {
   ESTADO_DISPONIBLE,
   ESTADO_ACTIVO,
@@ -37,13 +39,13 @@ enum estado
   ESTADO_ENFRIAMIENTO
 };
 
-String estado_desc[] = {
+String estado_sistema_desc[] = {
     "ESTADO_DISPONIBLE",
     "ESTADO_ACTIVO",
     "ESTADO_DESHABILITADO",
     "ESTADO_ENFRIAMIENTO"};
 
-enum evento
+enum evento_sistema
 {
   EVENTO_AUTORIZACION,
   EVENTO_FINALIZAR_USO,
@@ -58,7 +60,7 @@ enum evento
   EVENTO_CONTINUE
 };
 
-String evento_desc[] = {
+String evento_sistema_desc[] = {
     "EVENTO_AUTORIZACION",
     "EVENTO_FINALIZAR_USO",
     "EVENTO_CREDITO_AGOTADO",
@@ -71,92 +73,35 @@ String evento_desc[] = {
     "EVENTO_ACTUALIZAR_DISPLAY",
     "EVENTO_CONTINUE"};
 
-estado estado_actual = ESTADO_DISPONIBLE;
-evento evento_actual;
+enum estado_sensor_temperatura
+{
+  ESTADO_SENSOR_TEMP_INICIAL,
+  ESTADO_SENSOR_TEMP_NORMAL,
+  ESTADO_SENSOR_TEMP_ALTA,
+  ESTADO_SENSOR_TEMP_CRITICA
+};
 
-unsigned long tiempo_anterior_display;
-unsigned long tiempo_actual_display;
+estado_sistema estado_actual = ESTADO_DISPONIBLE;
+evento_sistema evento_actual;
+estado_sensor_temperatura estado_sensor_temperatura_actual = ESTADO_SENSOR_TEMP_INICIAL;
 
 LiquidCrystal_I2C lcd(DISPLAY_IC2_ADDRESS, DISPLAY_COLUMNAS, DISPLAY_FILAS);
 
+// Variables globales
+
 float temperatura;
 float corriente_disponible;
+
+unsigned long tiempo_anterior;
+unsigned long tiempo_actual;
+
+// Inicializaciones
 
 void iniciar_display()
 {
   lcd.init();
   lcd.backlight();
   lcd.printf("TEMP - %cC", (char)DISPLAY_CODIGO_CARACTER_GRADOS, temperatura);
-}
-
-void log_estado_evento()
-{
-  Serial.printf("Estado: %s, Evento: %s\r\n", estado_desc[estado_actual].c_str(), evento_desc[evento_actual].c_str());
-}
-
-float leer_temperatura()
-{
-  int lectura_sensor_temperatura = analogRead(PIN_SENSOR_TEMPERATURA);
-  float temperatura_celsius = 1 / (log(1 / (4095.0 / lectura_sensor_temperatura - 1)) / BETA + 1.0 / 298.15) - 273.15;
-
-  return temperatura_celsius;
-}
-
-bool verificar_sensor_temperatura()
-{
-  temperatura = leer_temperatura();
-
-  if (temperatura >= UMBRAL_TEMP_CRITICA)
-  {
-    evento_actual = EVENTO_TEMPERATURA_CRITICA;
-    return true;
-  }
-  if (temperatura >= UMBRAL_TEMP_SUPERIOR_HABILITAR_REFRIGERACION)
-  {
-    evento_actual = EVENTO_TEMPERATURA_ALTA;
-    return true;
-  }
-  if (temperatura <= UMBRAL_TEMP_INFERIOR_DESHABILITAR_REFRIGERACION)
-  {
-    evento_actual = EVENTO_TEMPERATURA_NORMAL;
-    return true;
-  }
-
-  return false;
-}
-
-bool verificar_actualizacion_display()
-{
-  tiempo_actual_display = millis();
-
-  if (tiempo_actual_display - tiempo_anterior_display > DISPLAY_TIEMPO_ACTUALIZACION_TEMP_MS)
-  {
-    tiempo_anterior_display = tiempo_actual_display;
-    evento_actual = EVENTO_ACTUALIZAR_DISPLAY;
-    return true;
-  }
-
-  return false;
-}
-
-void generar_evento()
-{
-  if (corriente_disponible <= 0)
-  {
-    evento_actual = EVENTO_CREDITO_AGOTADO;
-  }
-  if (verificar_actualizacion_display() || verificar_sensor_temperatura())
-  {
-    return;
-  }
-
-  evento_actual = EVENTO_CONTINUE;
-}
-
-void actualizar_display()
-{
-  lcd.setCursor(5, 0);
-  lcd.printf("%.1f %cC", temperatura, (char)DISPLAY_CODIGO_CARACTER_GRADOS);
 }
 
 void iniciar()
@@ -170,6 +115,144 @@ void iniciar()
   pinMode(PIN_SENSOR_TEMPERATURA, INPUT);
 
   iniciar_display();
+}
+
+// Log
+
+void log_estado_evento()
+{
+  if (evento_actual == EVENTO_CONTINUE)
+    return;
+
+  Serial.printf("Estado: %s, Evento: %s\r\n", estado_sistema_desc[estado_actual].c_str(), evento_sistema_desc[evento_actual].c_str());
+}
+
+// Sensor de temperatura
+
+float leer_temperatura()
+{
+  int lectura_sensor_temperatura = analogRead(PIN_SENSOR_TEMPERATURA);
+  float temperatura_celsius = 1 / (log(1 / (4095.0 / lectura_sensor_temperatura - 1)) / BETA + 1.0 / 298.15) - 273.15;
+
+  return temperatura_celsius;
+}
+
+void verificar_sensor_temperatura()
+{
+  temperatura = leer_temperatura();
+
+  switch (estado_sensor_temperatura_actual)
+  {
+  case ESTADO_SENSOR_TEMP_INICIAL:
+    if (temperatura >= UMBRAL_TEMP_CRITICA)
+    {
+      evento_actual = EVENTO_TEMPERATURA_CRITICA;
+      estado_sensor_temperatura_actual = ESTADO_SENSOR_TEMP_CRITICA;
+    }
+    else if (temperatura >= UMBRAL_TEMP_SUPERIOR_HABILITAR_REFRIGERACION)
+    {
+      evento_actual = EVENTO_TEMPERATURA_ALTA;
+      estado_sensor_temperatura_actual = ESTADO_SENSOR_TEMP_ALTA;
+    }
+    else if (temperatura <= UMBRAL_TEMP_INFERIOR_DESHABILITAR_REFRIGERACION)
+    {
+      evento_actual = EVENTO_TEMPERATURA_NORMAL;
+      estado_sensor_temperatura_actual = ESTADO_SENSOR_TEMP_NORMAL;
+    }
+    break;
+  case ESTADO_SENSOR_TEMP_NORMAL:
+    if (temperatura >= UMBRAL_TEMP_SUPERIOR_HABILITAR_REFRIGERACION)
+    {
+      evento_actual = EVENTO_TEMPERATURA_ALTA;
+      estado_sensor_temperatura_actual = ESTADO_SENSOR_TEMP_ALTA;
+    }
+    break;
+  case ESTADO_SENSOR_TEMP_ALTA:
+    if (temperatura >= UMBRAL_TEMP_CRITICA)
+    {
+      evento_actual = EVENTO_TEMPERATURA_CRITICA;
+      estado_sensor_temperatura_actual = ESTADO_SENSOR_TEMP_CRITICA;
+    }
+    else if (temperatura <= UMBRAL_TEMP_INFERIOR_DESHABILITAR_REFRIGERACION)
+    {
+      evento_actual = EVENTO_TEMPERATURA_NORMAL;
+      estado_sensor_temperatura_actual = ESTADO_SENSOR_TEMP_NORMAL;
+    }
+    break;
+  case ESTADO_SENSOR_TEMP_CRITICA:
+    if (temperatura < UMBRAL_TEMP_CRITICA && temperatura >= UMBRAL_TEMP_SUPERIOR_HABILITAR_REFRIGERACION)
+    {
+      evento_actual = EVENTO_TEMPERATURA_ALTA;
+      estado_sensor_temperatura_actual = ESTADO_SENSOR_TEMP_ALTA;
+    }
+    else if (temperatura <= UMBRAL_TEMP_INFERIOR_DESHABILITAR_REFRIGERACION)
+    {
+      evento_actual = EVENTO_TEMPERATURA_NORMAL;
+      estado_sensor_temperatura_actual = ESTADO_SENSOR_TEMP_NORMAL;
+    }
+    break;
+  default:
+    break;
+  }
+}
+
+// Sensor de corriente
+
+void verificar_sensor_corriente()
+{
+}
+
+// Display
+
+unsigned long tiempo_anterior_display;
+
+void verificar_actualizacion_display()
+{
+  if (tiempo_actual - tiempo_anterior_display > DISPLAY_TIEMPO_ACTUALIZACION_TEMP_MS)
+  {
+    tiempo_anterior_display = tiempo_actual;
+    evento_actual = EVENTO_ACTUALIZAR_DISPLAY;
+  }
+}
+
+// Generación de eventos
+
+int indice = 0;
+void (*verificar[CANTIDAD_VERIFICACIONES])() = {verificar_sensor_temperatura, verificar_actualizacion_display, verificar_sensor_corriente};
+
+void generar_evento()
+{
+  evento_actual = EVENTO_CONTINUE;
+
+  verificar[indice]();
+  indice = ++indice % CANTIDAD_VERIFICACIONES;
+  tiempo_anterior = tiempo_actual;
+}
+
+void actualizar_display()
+{
+  lcd.setCursor(5, 0);
+  lcd.printf("%.1f %cC", temperatura, (char)DISPLAY_CODIGO_CARACTER_GRADOS);
+}
+
+void iniciar_servicio()
+{
+  digitalWrite(PIN_RELE, HIGH);
+  digitalWrite(PIN_LED, HIGH);
+}
+
+void finalizar_servicio()
+{
+  digitalWrite(PIN_RELE, LOW);
+  digitalWrite(PIN_LED, LOW);
+}
+
+void refrigerar()
+{
+}
+
+void finalizar_refrigeracion()
+{
 }
 
 void fsm()
@@ -187,8 +270,7 @@ void fsm()
       estado_actual = ESTADO_DESHABILITADO;
       break;
     case EVENTO_AUTORIZACION:
-      digitalWrite(PIN_RELE, HIGH);
-      digitalWrite(PIN_LED, HIGH);
+      iniciar_servicio();
       estado_actual = ESTADO_ACTIVO;
       break;
     case EVENTO_CONTINUE:
@@ -201,27 +283,23 @@ void fsm()
     switch (evento_actual)
     {
     case EVENTO_FINALIZAR_USO:
-      digitalWrite(PIN_RELE, LOW);
-      digitalWrite(PIN_LED, LOW);
+      finalizar_servicio();
       estado_actual = ESTADO_DISPONIBLE;
       break;
     case EVENTO_CREDITO_AGOTADO:
-      digitalWrite(PIN_RELE, LOW);
-      digitalWrite(PIN_LED, LOW);
+      finalizar_servicio();
       estado_actual = ESTADO_DISPONIBLE;
       break;
     case EVENTO_TIMEOUT_SIN_USO:
-      digitalWrite(PIN_RELE, LOW);
-      digitalWrite(PIN_LED, LOW);
+      finalizar_servicio();
       estado_actual = ESTADO_DISPONIBLE;
       break;
     case EVENTO_TEMPERATURA_ALTA:
-      digitalWrite(PIN_RELE, LOW);
+      refrigerar();
       estado_actual = ESTADO_ENFRIAMIENTO;
       break;
     case EVENTO_DESHABILITADO_MANUAL:
-      digitalWrite(PIN_RELE, LOW);
-      digitalWrite(PIN_LED, LOW);
+      finalizar_servicio();
       estado_actual = ESTADO_DESHABILITADO;
       break;
     case EVENTO_ACTUALIZAR_DISPLAY:
@@ -249,32 +327,27 @@ void fsm()
     switch (evento_actual)
     {
     case EVENTO_FINALIZAR_USO:
-      digitalWrite(PIN_RELE, LOW);
-      digitalWrite(PIN_LED, LOW);
+      finalizar_servicio();
       estado_actual = ESTADO_DISPONIBLE;
       break;
     case EVENTO_CREDITO_AGOTADO:
-      digitalWrite(PIN_RELE, LOW);
-      digitalWrite(PIN_LED, LOW);
+      finalizar_servicio();
       estado_actual = ESTADO_DISPONIBLE;
       break;
     case EVENTO_TIMEOUT_SIN_USO:
-      digitalWrite(PIN_RELE, LOW);
-      digitalWrite(PIN_LED, LOW);
+      finalizar_servicio();
       estado_actual = ESTADO_DISPONIBLE;
       break;
     case EVENTO_TEMPERATURA_NORMAL:
-      digitalWrite(PIN_RELE, HIGH);
+      finalizar_refrigeracion();
       estado_actual = ESTADO_ACTIVO;
       break;
     case EVENTO_DESHABILITADO_MANUAL:
-      digitalWrite(PIN_RELE, LOW);
-      digitalWrite(PIN_LED, LOW);
+      finalizar_servicio();
       estado_actual = ESTADO_DESHABILITADO;
       break;
     case EVENTO_TEMPERATURA_CRITICA:
-      digitalWrite(PIN_RELE, LOW);
-      digitalWrite(PIN_LED, LOW);
+      finalizar_servicio();
       estado_actual = ESTADO_DESHABILITADO;
       break;
     case EVENTO_ACTUALIZAR_DISPLAY:
