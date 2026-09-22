@@ -52,8 +52,10 @@ void aplicarActuadores() {
   digitalWrite(PIN_COOLER_REFRIGERACION, estadoActual == ENFRIAMIENTO ? HIGH : LOW);
 }
 
-void finalizarTransicion(Estado estadoAnterior, Evento evento) {
-  if (estadoAnterior == estadoActual) return;
+void cambiarEstado(Estado nuevoEstado, Evento evento) {
+  if (nuevoEstado == estadoActual) return;
+  const Estado estadoAnterior = estadoActual;
+  estadoActual = nuevoEstado;
   inicioSinUsoMs = 0;
   ultimaMedicionCreditoMs = millis();
   aplicarActuadores();
@@ -108,38 +110,40 @@ Mensaje obtenerEvento() {
   return { CONTINUE, 0.0f };
 }
 
-Estado procesarRecarga(float creditoWh) {
+void procesarRecarga(float creditoWh) {
   recargar(creditoWh);
-  return estadoActual;
 }
 
-Estado procesarActualizacionDisplay() {
+void procesarActualizacionDisplay() {
   actualizarDisplay();
-  return estadoActual;
 }
 
-Estado procesarAutorizacion() {
-  if (saldoWh > 0.0f) return ACTIVO;
+void procesarAutorizacion(Evento evento) {
+  if (saldoWh > 0.0f) {
+    cambiarEstado(ACTIVO, evento);
+    return;
+  }
   Serial.println("Saldo insuficiente: recargue con 'c <Wh>'.");
-  return DISPONIBLE;
 }
 
-Estado procesarEstadoDisponible() {
-  return DISPONIBLE;
+void procesarEstadoDisponible(Evento evento) {
+  cambiarEstado(DISPONIBLE, evento);
 }
 
-Estado procesarEstadoDeshabilitado() {
-  return DESHABILITADO;
+void procesarEstadoDeshabilitado(Evento evento) {
+  cambiarEstado(DESHABILITADO, evento);
 }
 
-Estado procesarEstadoEnfriamiento() {
-  return ENFRIAMIENTO;
+void procesarEstadoEnfriamiento(Evento evento) {
+  cambiarEstado(ENFRIAMIENTO, evento);
 }
 
-Estado procesarTemperaturaNormal(Evento &eventoTransicion) {
-  if (saldoWh > 0.0f) return ACTIVO;
-  eventoTransicion = CREDITO_AGOTADO;
-  return DISPONIBLE;
+void procesarTemperaturaNormal(Evento evento) {
+  if (saldoWh > 0.0f) {
+    cambiarEstado(ACTIVO, evento);
+    return;
+  }
+  cambiarEstado(DISPONIBLE, CREDITO_AGOTADO);
 }
 
 void registrarEventoInesperado(Evento evento) {
@@ -152,23 +156,21 @@ void registrarEstadoInesperado() {
 
 void maquinaEstados() {
   const Mensaje mensaje = obtenerEvento();
-  const Estado estadoAnterior = estadoActual;
-  Evento eventoTransicion = mensaje.evento;
 
   switch (estadoActual) {
     case DISPONIBLE:
       switch (mensaje.evento) {
         case AUTORIZACION:
-          estadoActual = procesarAutorizacion();
+          procesarAutorizacion(mensaje.evento);
           break;
         case RECARGAR:
-          estadoActual = procesarRecarga(mensaje.creditoWh);
+          procesarRecarga(mensaje.creditoWh);
           break;
         case DESHABILITADO_MANUAL:
-          estadoActual = procesarEstadoDeshabilitado();
+          procesarEstadoDeshabilitado(mensaje.evento);
           break;
         case ACTUALIZAR_DISPLAY:
-          estadoActual = procesarActualizacionDisplay();
+          procesarActualizacionDisplay();
           break;
         case CONTINUE:
           break;
@@ -181,28 +183,28 @@ void maquinaEstados() {
     case ACTIVO:
       switch (mensaje.evento) {
         case FINALIZAR_USO:
-          estadoActual = procesarEstadoDisponible();
+          procesarEstadoDisponible(mensaje.evento);
           break;
         case RECARGAR:
-          estadoActual = procesarRecarga(mensaje.creditoWh);
+          procesarRecarga(mensaje.creditoWh);
           break;
         case CREDITO_AGOTADO:
-          estadoActual = procesarEstadoDisponible();
+          procesarEstadoDisponible(mensaje.evento);
           break;
         case TIMEOUT_SIN_USO:
-          estadoActual = procesarEstadoDisponible();
+          procesarEstadoDisponible(mensaje.evento);
           break;
         case DESHABILITADO_MANUAL:
-          estadoActual = procesarEstadoDeshabilitado();
+          procesarEstadoDeshabilitado(mensaje.evento);
           break;
         case TEMPERATURA_ALTA:
-          estadoActual = procesarEstadoEnfriamiento();
+          procesarEstadoEnfriamiento(mensaje.evento);
           break;
         case TEMPERATURA_CRITICA:
-          estadoActual = procesarEstadoEnfriamiento();
+          procesarEstadoEnfriamiento(mensaje.evento);
           break;
         case ACTUALIZAR_DISPLAY:
-          estadoActual = procesarActualizacionDisplay();
+          procesarActualizacionDisplay();
           break;
         case CONTINUE:
           break;
@@ -215,13 +217,13 @@ void maquinaEstados() {
     case DESHABILITADO:
       switch (mensaje.evento) {
         case RECARGAR:
-          estadoActual = procesarRecarga(mensaje.creditoWh);
+          procesarRecarga(mensaje.creditoWh);
           break;
         case HABILITADO_MANUAL:
-          estadoActual = procesarEstadoDisponible();
+          procesarEstadoDisponible(mensaje.evento);
           break;
         case ACTUALIZAR_DISPLAY:
-          estadoActual = procesarActualizacionDisplay();
+          procesarActualizacionDisplay();
           break;
         case CONTINUE:
           break;
@@ -234,28 +236,28 @@ void maquinaEstados() {
     case ENFRIAMIENTO:
       switch (mensaje.evento) {
         case FINALIZAR_USO:
-          estadoActual = procesarEstadoDisponible();
+          procesarEstadoDisponible(mensaje.evento);
           break;
         case RECARGAR:
-          estadoActual = procesarRecarga(mensaje.creditoWh);
+          procesarRecarga(mensaje.creditoWh);
           break;
         case CREDITO_AGOTADO:
-          estadoActual = procesarEstadoDisponible();
+          procesarEstadoDisponible(mensaje.evento);
           break;
         case TIMEOUT_SIN_USO:
-          estadoActual = procesarEstadoDisponible();
+          procesarEstadoDisponible(mensaje.evento);
           break;
         case DESHABILITADO_MANUAL:
-          estadoActual = procesarEstadoDeshabilitado();
+          procesarEstadoDeshabilitado(mensaje.evento);
           break;
         case TEMPERATURA_NORMAL:
-          estadoActual = procesarTemperaturaNormal(eventoTransicion);
+          procesarTemperaturaNormal(mensaje.evento);
           break;
         case TEMPERATURA_CRITICA:
-          estadoActual = procesarEstadoDeshabilitado();
+          procesarEstadoDeshabilitado(mensaje.evento);
           break;
         case ACTUALIZAR_DISPLAY:
-          estadoActual = procesarActualizacionDisplay();
+          procesarActualizacionDisplay();
           break;
         case CONTINUE:
           break;
@@ -269,8 +271,6 @@ void maquinaEstados() {
       registrarEstadoInesperado();
       break;
   }
-
-  finalizarTransicion(estadoAnterior, eventoTransicion);
 }
 
 bool encolar(Evento evento, float creditoWh = 0.0f) {
