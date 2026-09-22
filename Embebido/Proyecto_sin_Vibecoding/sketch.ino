@@ -4,12 +4,15 @@
 #include <ctype.h>
 #include <stdlib.h>
 
-// El rele representa la carga de 12 V; GPIO12 acciona el cooler de refrigeracion.
+// El rele representa la carga de 12 V; GPIO12 controla por PWM el cooler de refrigeracion.
 constexpr byte PIN_COOLER_REFRIGERACION = 12, PIN_RELE_CARGA = 26, PIN_LED_CARGA = 27;
 constexpr byte PIN_CORRIENTE = 32, PIN_TEMPERATURA = 35;
 constexpr float TENSION_NOMINAL_CARGA_V = 12.0f, FACTOR_ACELERACION = 60.0f;
 constexpr float CORRIENTE_MINIMA_A = 0.2f, CORRIENTE_MAXIMA_SIMULADA_A = 5.0f;
-constexpr float TEMP_ALTA_C = 60.0f, TEMP_NORMAL_C = 30.0f, TEMP_CRITICA_C = 75.0f;
+constexpr float TEMP_ALTA_C = 50.0f, TEMP_NORMAL_C = 30.0f, TEMP_CRITICA_C = 75.0f;
+constexpr byte RESOLUCION_PWM_COOLER_BITS = 8;
+constexpr uint32_t FRECUENCIA_PWM_COOLER_HZ = 5000;
+constexpr int POTENCIA_COOLER_APAGADO = 0, POTENCIA_COOLER_MINIMA = 25, POTENCIA_COOLER_MAXIMA = 255; // 255 porque es un LED
 constexpr unsigned long PERIODO_FSM_MS = 50, PERIODO_DISPLAY_MS = 500, TIMEOUT_SIN_USO_MS = 10000, PERIODO_SERIAL_MS = 20;
 constexpr float MILISEGUNDOS_POR_HORA = 3600000.0f;
 constexpr unsigned long VELOCIDAD_SERIAL_BPS = 115200;
@@ -54,11 +57,21 @@ void actualizarDisplay() {
   lcd.setCursor(LCD_COLUMNA_INICIAL, LCD_FILA_MEDICIONES); lcd.print(linea);
 }
 
+void aplicarPotenciaCooler() {
+  const bool enfriamientoEnCurso = estadoActual == ENFRIAMIENTO;
+  if(!enfriamientoEnCurso) {
+    ledcWrite(PIN_COOLER_REFRIGERACION, POTENCIA_COOLER_APAGADO);
+    return;
+  }
+
+  ledcWrite(PIN_COOLER_REFRIGERACION,map((int)temperaturaC, TEMP_ALTA_C, TEMP_CRITICA_C, POTENCIA_COOLER_MINIMA, POTENCIA_COOLER_MAXIMA));
+}
+
 void aplicarActuadores() {
   const bool cargaActiva = (estadoActual == ACTIVO || estadoActual == ENFRIAMIENTO);
   digitalWrite(PIN_RELE_CARGA, cargaActiva ? RELE_ACTIVO : RELE_INACTIVO);
   digitalWrite(PIN_LED_CARGA, cargaActiva ? HIGH : LOW);
-  digitalWrite(PIN_COOLER_REFRIGERACION, estadoActual == ENFRIAMIENTO ? HIGH : LOW);
+  aplicarPotenciaCooler();
 }
 
 void cambiarEstado(Estado nuevoEstado, Evento evento) {
@@ -67,7 +80,6 @@ void cambiarEstado(Estado nuevoEstado, Evento evento) {
   estadoActual = nuevoEstado;
   inicioSinUsoMs = 0;
   ultimaMedicionCreditoMs = millis();
-  aplicarActuadores();
   Serial.printf("[FSM] %s --%s--> %s\n", NOMBRE_ESTADO[estadoAnterior], NOMBRE_EVENTO[evento], NOMBRE_ESTADO[estadoActual]);
   actualizarDisplay();
 }
@@ -101,7 +113,6 @@ Mensaje obtenerEvento() {
 
   Mensaje mensaje;
   if (xQueueReceive(colaEventos, &mensaje, ESPERA_COLA_SIN_BLOQUEO_TICKS) == pdTRUE) return mensaje;
-  if (estadoActual == ACTIVO && temperaturaC >= TEMP_CRITICA_C) return { TEMPERATURA_CRITICA, 0.0f };
   if (estadoActual == ACTIVO && temperaturaC >= TEMP_ALTA_C) return { TEMPERATURA_ALTA, 0.0f };
   if (estadoActual == ENFRIAMIENTO && temperaturaC >= TEMP_CRITICA_C) return { TEMPERATURA_CRITICA, 0.0f };
   if (estadoActual == ENFRIAMIENTO && temperaturaC <= TEMP_NORMAL_C) return { TEMPERATURA_NORMAL, 0.0f };
@@ -209,9 +220,6 @@ void maquinaEstados() {
         case TEMPERATURA_ALTA:
           procesarEstadoEnfriamiento(mensaje.evento);
           break;
-        case TEMPERATURA_CRITICA:
-          procesarEstadoEnfriamiento(mensaje.evento);
-          break;
         case ACTUALIZAR_DISPLAY:
           procesarActualizacionDisplay();
           break;
@@ -280,6 +288,8 @@ void maquinaEstados() {
       registrarEstadoInesperado();
       break;
   }
+
+  aplicarActuadores();
 }
 
 bool encolar(Evento evento, float creditoWh = 0.0f) {
@@ -331,7 +341,8 @@ void tareaFSM(void *) {
 
 void setup() {
   Serial.begin(VELOCIDAD_SERIAL_BPS);
-  pinMode(PIN_COOLER_REFRIGERACION, OUTPUT); pinMode(PIN_RELE_CARGA, OUTPUT); pinMode(PIN_LED_CARGA, OUTPUT);
+  ledcAttach(PIN_COOLER_REFRIGERACION, FRECUENCIA_PWM_COOLER_HZ, RESOLUCION_PWM_COOLER_BITS);
+  pinMode(PIN_RELE_CARGA, OUTPUT); pinMode(PIN_LED_CARGA, OUTPUT);
   pinMode(PIN_CORRIENTE, INPUT); pinMode(PIN_TEMPERATURA, INPUT);
   estadoActual = DISPONIBLE;
   lcd.init(); lcd.backlight(); aplicarActuadores(); actualizarDisplay();

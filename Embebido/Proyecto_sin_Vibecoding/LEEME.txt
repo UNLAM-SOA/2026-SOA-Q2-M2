@@ -10,11 +10,13 @@ Las entradas vacías, negativas, no numéricas o con formato incorrecto no modif
 
 Durante `ACTIVO`, si la corriente es mayor que 0,2 A, el saldo se descuenta con `consumoWh = 12 V × corrienteA × tiempoHoras × 60`. El tiempo se mide entre iteraciones reales. Al llegar a cero se informa el agotamiento automático, se desactivan relé y LED de estado, y se vuelve a `DISPONIBLE`. Con corriente menor o igual a 0,2 A no se descuenta y se mantiene el timeout de 10 s. El descuento se pausa en `DISPONIBLE`, `DESHABILITADO` y `ENFRIAMIENTO`.
 
-El LCD muestra estado abreviado y saldo en la primera línea, y corriente/temperatura en la segunda. El LED de GPIO27 sólo acompaña a la carga activa. GPIO12 enciende el LED proxy del cooler de refrigeración durante `ENFRIAMIENTO`.
+El LCD muestra estado abreviado y saldo en la primera línea, y corriente/temperatura en la segunda. El LED de GPIO27 sólo acompaña a la carga activa. GPIO12 controla por PWM el LED proxy del cooler de refrigeración. A partir de 50 °C, la potencia aumenta en cuatro escalones (25 %, 50 %, 75 % y 100 %) hasta alcanzar los 75 °C. Durante `ENFRIAMIENTO`, el cooler conserva como mínimo el 25 % hasta regresar a la temperatura normal de 30 °C.
+
+Al alcanzar la temperatura crítica de 75 °C, la máquina pasa directamente a `DESHABILITADO`: se corta la carga mediante el relé y el cooler permanece al 100 %. Mientras la temperatura siga por encima de 50 °C, el PWM continúa regulando el cooler aunque la carga esté deshabilitada.
 
 ## Alcance de Wokwi
 
-Wokwi representa señales de control: el relé activo en bajo representa la habilitación del cooler de carga y el LED de GPIO12 representa el cooler de refrigeración. No se simulan motores ni su consumo eléctrico.
+Wokwi representa señales de control: el relé activo en bajo representa la habilitación del cooler de carga y la intensidad del LED de GPIO12 representa la potencia PWM del cooler de refrigeración. No se simulan motores ni su consumo eléctrico.
 
 El potenciómetro está conectado directamente a GPIO32 y representa linealmente 0–5 A; no reproduce el offset ni la sensibilidad de un ACS712 real.
 
