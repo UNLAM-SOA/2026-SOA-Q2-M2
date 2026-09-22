@@ -1,1 +1,21 @@
-En este directorio debe ir el código que se realizó para el ESP32 de forma tradicional, sin utilizar técnicas de vibecoding 
+# Crédito energético y simulación Wokwi
+
+El firmware inicia con saldo volátil de 0 Wh. En el monitor serie, con fin de línea:
+
+- `c <Wh>` agrega una recarga positiva, por ejemplo `c 10`.
+- `a` autoriza la carga sólo si hay saldo.
+- `f` finaliza la sesión; `d` deshabilita y `h` habilita nuevamente.
+
+Las entradas vacías, negativas, no numéricas o con formato incorrecto no modifican el saldo. Se puede recargar en cualquier estado. El saldo se conserva al finalizar, enfriar o deshabilitar, pero se pierde al reiniciar el ESP32.
+
+Durante `ACTIVO`, si la corriente es mayor que 0,2 A, el saldo se descuenta con `consumoWh = 12 V × corrienteA × tiempoHoras × 60`. El tiempo se mide entre iteraciones reales. Al llegar a cero se informa el agotamiento automático, se desactivan relé y LED de estado, y se vuelve a `DISPONIBLE`. Con corriente menor o igual a 0,2 A no se descuenta y se mantiene el timeout de 10 s. El descuento se pausa en `DISPONIBLE`, `DESHABILITADO` y `ENFRIAMIENTO`.
+
+El LCD muestra estado abreviado y saldo en la primera línea, y corriente/temperatura en la segunda. El LED de GPIO27 sólo acompaña a la carga activa. GPIO12 enciende el LED proxy del cooler de refrigeración durante `ENFRIAMIENTO`.
+
+## Alcance de Wokwi
+
+Wokwi representa señales de control: el relé activo en bajo representa la habilitación del cooler de carga y el LED de GPIO12 representa el cooler de refrigeración. No se simulan motores ni su consumo eléctrico.
+
+El potenciómetro está conectado directamente a GPIO32 y representa linealmente 0–5 A; no reproduce el offset ni la sensibilidad de un ACS712 real.
+
+En el montaje físico, el ACS712 se alimenta a 5 V y mide únicamente la rama de la carga consumidora. Su salida `OUT` se reduce para el ADC de 3,3 V mediante divisor: 10 kΩ entre `OUT` y el punto medio, 20 kΩ entre el punto medio y GND, y el punto medio hacia GPIO32 (5 V a aproximadamente 3,33 V). El cooler de carga es de 12 V y el relé lo habilita. El cooler de refrigeración se controla desde GPIO12 mediante BC337, resistencia de base y diodo de protección.
