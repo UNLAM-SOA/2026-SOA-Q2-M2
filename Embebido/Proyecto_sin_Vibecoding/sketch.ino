@@ -28,7 +28,7 @@ const char *NOMBRE_EVENTO[] = { "autorizacion", "finalizar", "recargar", "credit
 
 LiquidCrystal_I2C lcd(LCD_DIRECCION, LCD_COLUMNAS, LCD_FILAS);
 QueueHandle_t colaEventos;
-Estado estadoActual = DISPONIBLE;
+Estado estadoActual;
 float saldoWh = 0.0f, temperaturaC = 0.0f, corrienteA = 0.0f;
 unsigned long ultimoDisplayMs = 0, inicioSinUsoMs = 0, ultimaMedicionCreditoMs = 0;
 
@@ -52,13 +52,12 @@ void aplicarActuadores() {
   digitalWrite(PIN_COOLER_REFRIGERACION, estadoActual == ENFRIAMIENTO ? HIGH : LOW);
 }
 
-void cambiarEstado(Estado nuevoEstado, Evento evento) {
-  Estado anterior = estadoActual;
-  estadoActual = nuevoEstado;
+void finalizarTransicion(Estado estadoAnterior, Evento evento) {
+  if (estadoAnterior == estadoActual) return;
   inicioSinUsoMs = 0;
   ultimaMedicionCreditoMs = millis();
   aplicarActuadores();
-  Serial.printf("[FSM] %s --%s--> %s\n", NOMBRE_ESTADO[anterior], NOMBRE_EVENTO[evento], NOMBRE_ESTADO[estadoActual]);
+  Serial.printf("[FSM] %s --%s--> %s\n", NOMBRE_ESTADO[estadoAnterior], NOMBRE_EVENTO[evento], NOMBRE_ESTADO[estadoActual]);
   actualizarDisplay();
 }
 
@@ -83,55 +82,195 @@ bool actualizarSaldo(unsigned long ahora) {
   return false;
 }
 
-Evento obtenerEvento() {
+Mensaje obtenerEvento() {
   const unsigned long ahora = millis();
   temperaturaC = convertirTemperatura(analogRead(PIN_TEMPERATURA));
   corrienteA = analogRead(PIN_CORRIENTE) * CORRIENTE_MAXIMA_SIMULADA_A / ADC_MAXIMO;
-  if (actualizarSaldo(ahora)) return CREDITO_AGOTADO;
+  if (actualizarSaldo(ahora)) return { CREDITO_AGOTADO, 0.0f };
 
   Mensaje mensaje;
-  if (xQueueReceive(colaEventos, &mensaje, 0) == pdTRUE) {
-    if (mensaje.evento == RECARGAR) recargar(mensaje.creditoWh);
-    return mensaje.evento;
-  }
-  if (estadoActual == ACTIVO && temperaturaC >= TEMP_CRITICA_C) return TEMPERATURA_CRITICA;
-  if (estadoActual == ACTIVO && temperaturaC >= TEMP_ALTA_C) return TEMPERATURA_ALTA;
-  if (estadoActual == ENFRIAMIENTO && temperaturaC >= TEMP_CRITICA_C) return TEMPERATURA_CRITICA;
-  if (estadoActual == ENFRIAMIENTO && temperaturaC <= TEMP_NORMAL_C) return TEMPERATURA_NORMAL;
+  if (xQueueReceive(colaEventos, &mensaje, 0) == pdTRUE) return mensaje;
+  if (estadoActual == ACTIVO && temperaturaC >= TEMP_CRITICA_C) return { TEMPERATURA_CRITICA, 0.0f };
+  if (estadoActual == ACTIVO && temperaturaC >= TEMP_ALTA_C) return { TEMPERATURA_ALTA, 0.0f };
+  if (estadoActual == ENFRIAMIENTO && temperaturaC >= TEMP_CRITICA_C) return { TEMPERATURA_CRITICA, 0.0f };
+  if (estadoActual == ENFRIAMIENTO && temperaturaC <= TEMP_NORMAL_C) return { TEMPERATURA_NORMAL, 0.0f };
   if (estadoActual == ACTIVO && corrienteA <= CORRIENTE_MINIMA_A) {
     if (inicioSinUsoMs == 0) inicioSinUsoMs = ahora;
-    else if (ahora - inicioSinUsoMs >= TIMEOUT_SIN_USO_MS) { inicioSinUsoMs = 0; return TIMEOUT_SIN_USO; }
+    else if (ahora - inicioSinUsoMs >= TIMEOUT_SIN_USO_MS) {
+      inicioSinUsoMs = 0;
+      return { TIMEOUT_SIN_USO, 0.0f };
+    }
   } else inicioSinUsoMs = 0;
-  if (ahora - ultimoDisplayMs >= PERIODO_DISPLAY_MS) { ultimoDisplayMs = ahora; return ACTUALIZAR_DISPLAY; }
-  return CONTINUE;
+  if (ahora - ultimoDisplayMs >= PERIODO_DISPLAY_MS) {
+    ultimoDisplayMs = ahora;
+    return { ACTUALIZAR_DISPLAY, 0.0f };
+  }
+  return { CONTINUE, 0.0f };
 }
 
-void procesarEvento(Evento evento) {
-  if (evento == RECARGAR || evento == CONTINUE) return;
-  if (evento == ACTUALIZAR_DISPLAY) { actualizarDisplay(); return; }
+Estado procesarRecarga(float creditoWh) {
+  recargar(creditoWh);
+  return estadoActual;
+}
+
+Estado procesarActualizacionDisplay() {
+  actualizarDisplay();
+  return estadoActual;
+}
+
+Estado procesarAutorizacion() {
+  if (saldoWh > 0.0f) return ACTIVO;
+  Serial.println("Saldo insuficiente: recargue con 'c <Wh>'.");
+  return DISPONIBLE;
+}
+
+Estado procesarEstadoDisponible() {
+  return DISPONIBLE;
+}
+
+Estado procesarEstadoDeshabilitado() {
+  return DESHABILITADO;
+}
+
+Estado procesarEstadoEnfriamiento() {
+  return ENFRIAMIENTO;
+}
+
+Estado procesarTemperaturaNormal(Evento &eventoTransicion) {
+  if (saldoWh > 0.0f) return ACTIVO;
+  eventoTransicion = CREDITO_AGOTADO;
+  return DISPONIBLE;
+}
+
+void registrarEventoInesperado(Evento evento) {
+  Serial.printf("[FSM] Evento no esperado: estado=%s, evento=%s\n", NOMBRE_ESTADO[estadoActual], NOMBRE_EVENTO[evento]);
+}
+
+void registrarEstadoInesperado() {
+  Serial.println("[FSM] Estado no reconocido.");
+}
+
+void maquinaEstados() {
+  const Mensaje mensaje = obtenerEvento();
+  const Estado estadoAnterior = estadoActual;
+  Evento eventoTransicion = mensaje.evento;
+
   switch (estadoActual) {
     case DISPONIBLE:
-      if (evento == AUTORIZACION) {
-        if (saldoWh > 0.0f) cambiarEstado(ACTIVO, evento);
-        else Serial.println("Saldo insuficiente: recargue con 'c <Wh>'.");
-      } else if (evento == DESHABILITADO_MANUAL) cambiarEstado(DESHABILITADO, evento);
+      switch (mensaje.evento) {
+        case AUTORIZACION:
+          estadoActual = procesarAutorizacion();
+          break;
+        case RECARGAR:
+          estadoActual = procesarRecarga(mensaje.creditoWh);
+          break;
+        case DESHABILITADO_MANUAL:
+          estadoActual = procesarEstadoDeshabilitado();
+          break;
+        case ACTUALIZAR_DISPLAY:
+          estadoActual = procesarActualizacionDisplay();
+          break;
+        case CONTINUE:
+          break;
+        default:
+          registrarEventoInesperado(mensaje.evento);
+          break;
+      }
       break;
+
     case ACTIVO:
-      if (evento == FINALIZAR_USO || evento == CREDITO_AGOTADO || evento == TIMEOUT_SIN_USO) cambiarEstado(DISPONIBLE, evento);
-      else if (evento == TEMPERATURA_ALTA || evento == TEMPERATURA_CRITICA) cambiarEstado(ENFRIAMIENTO, evento);
-      else if (evento == DESHABILITADO_MANUAL) cambiarEstado(DESHABILITADO, evento);
+      switch (mensaje.evento) {
+        case FINALIZAR_USO:
+          estadoActual = procesarEstadoDisponible();
+          break;
+        case RECARGAR:
+          estadoActual = procesarRecarga(mensaje.creditoWh);
+          break;
+        case CREDITO_AGOTADO:
+          estadoActual = procesarEstadoDisponible();
+          break;
+        case TIMEOUT_SIN_USO:
+          estadoActual = procesarEstadoDisponible();
+          break;
+        case DESHABILITADO_MANUAL:
+          estadoActual = procesarEstadoDeshabilitado();
+          break;
+        case TEMPERATURA_ALTA:
+          estadoActual = procesarEstadoEnfriamiento();
+          break;
+        case TEMPERATURA_CRITICA:
+          estadoActual = procesarEstadoEnfriamiento();
+          break;
+        case ACTUALIZAR_DISPLAY:
+          estadoActual = procesarActualizacionDisplay();
+          break;
+        case CONTINUE:
+          break;
+        default:
+          registrarEventoInesperado(mensaje.evento);
+          break;
+      }
       break;
+
     case DESHABILITADO:
-      if (evento == HABILITADO_MANUAL) cambiarEstado(DISPONIBLE, evento);
+      switch (mensaje.evento) {
+        case RECARGAR:
+          estadoActual = procesarRecarga(mensaje.creditoWh);
+          break;
+        case HABILITADO_MANUAL:
+          estadoActual = procesarEstadoDisponible();
+          break;
+        case ACTUALIZAR_DISPLAY:
+          estadoActual = procesarActualizacionDisplay();
+          break;
+        case CONTINUE:
+          break;
+        default:
+          registrarEventoInesperado(mensaje.evento);
+          break;
+      }
       break;
+
     case ENFRIAMIENTO:
-      if (evento == FINALIZAR_USO || evento == CREDITO_AGOTADO || evento == TIMEOUT_SIN_USO) cambiarEstado(DISPONIBLE, evento);
-      else if (evento == TEMPERATURA_NORMAL) {
-        if (saldoWh > 0.0f) cambiarEstado(ACTIVO, evento);
-        else cambiarEstado(DISPONIBLE, CREDITO_AGOTADO);
-      } else if (evento == TEMPERATURA_CRITICA || evento == DESHABILITADO_MANUAL) cambiarEstado(DESHABILITADO, evento);
+      switch (mensaje.evento) {
+        case FINALIZAR_USO:
+          estadoActual = procesarEstadoDisponible();
+          break;
+        case RECARGAR:
+          estadoActual = procesarRecarga(mensaje.creditoWh);
+          break;
+        case CREDITO_AGOTADO:
+          estadoActual = procesarEstadoDisponible();
+          break;
+        case TIMEOUT_SIN_USO:
+          estadoActual = procesarEstadoDisponible();
+          break;
+        case DESHABILITADO_MANUAL:
+          estadoActual = procesarEstadoDeshabilitado();
+          break;
+        case TEMPERATURA_NORMAL:
+          estadoActual = procesarTemperaturaNormal(eventoTransicion);
+          break;
+        case TEMPERATURA_CRITICA:
+          estadoActual = procesarEstadoDeshabilitado();
+          break;
+        case ACTUALIZAR_DISPLAY:
+          estadoActual = procesarActualizacionDisplay();
+          break;
+        case CONTINUE:
+          break;
+        default:
+          registrarEventoInesperado(mensaje.evento);
+          break;
+      }
+      break;
+
+    default:
+      registrarEstadoInesperado();
       break;
   }
+
+  finalizarTransicion(estadoAnterior, eventoTransicion);
 }
 
 bool encolar(Evento evento, float creditoWh = 0.0f) {
@@ -178,13 +317,14 @@ void tareaSerial(void *) {
 
 void tareaFSM(void *) {
   TickType_t ultimaEjecucion = xTaskGetTickCount();
-  for (;;) { procesarEvento(obtenerEvento()); vTaskDelayUntil(&ultimaEjecucion, pdMS_TO_TICKS(PERIODO_FSM_MS)); }
+  for (;;) { maquinaEstados(); vTaskDelayUntil(&ultimaEjecucion, pdMS_TO_TICKS(PERIODO_FSM_MS)); }
 }
 
 void setup() {
   Serial.begin(115200);
   pinMode(PIN_COOLER_REFRIGERACION, OUTPUT); pinMode(PIN_RELE_CARGA, OUTPUT); pinMode(PIN_LED_CARGA, OUTPUT);
   pinMode(PIN_CORRIENTE, INPUT); pinMode(PIN_TEMPERATURA, INPUT);
+  estadoActual = DISPONIBLE;
   lcd.init(); lcd.backlight(); aplicarActuadores(); actualizarDisplay();
   ultimaMedicionCreditoMs = millis();
   colaEventos = xQueueCreate(LARGO_COLA_EVENTOS, sizeof(Mensaje)); configASSERT(colaEventos);
