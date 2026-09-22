@@ -11,10 +11,19 @@ constexpr float TENSION_NOMINAL_CARGA_V = 12.0f, FACTOR_ACELERACION = 60.0f;
 constexpr float CORRIENTE_MINIMA_A = 0.2f, CORRIENTE_MAXIMA_SIMULADA_A = 5.0f;
 constexpr float TEMP_ALTA_C = 60.0f, TEMP_NORMAL_C = 30.0f, TEMP_CRITICA_C = 75.0f;
 constexpr unsigned long PERIODO_FSM_MS = 50, PERIODO_DISPLAY_MS = 500, TIMEOUT_SIN_USO_MS = 10000, PERIODO_SERIAL_MS = 20;
+constexpr float MILISEGUNDOS_POR_HORA = 3600000.0f;
+constexpr unsigned long VELOCIDAD_SERIAL_BPS = 115200;
 constexpr int ADC_MAXIMO = 4095;
-constexpr float BETA_NTC = 3950.0f;
+constexpr int ADC_LECTURA_MINIMA_VALIDA = 1, ADC_LECTURA_MAXIMA_VALIDA = ADC_MAXIMO - 1;
+constexpr float BETA_NTC = 3950.0f, TEMPERATURA_REFERENCIA_NTC_K = 298.15f;
+constexpr float DIFERENCIA_KELVIN_CELSIUS = 273.15f;
 constexpr byte RELE_ACTIVO = LOW, RELE_INACTIVO = HIGH;  // Modulo Wokwi activo en bajo.
 constexpr byte LCD_DIRECCION = 0x27, LCD_COLUMNAS = 16, LCD_FILAS = 2, LARGO_COLA_EVENTOS = 8;
+constexpr byte LCD_COLUMNA_INICIAL = 0, LCD_FILA_ESTADO = 0, LCD_FILA_MEDICIONES = 1;
+constexpr size_t TAMANO_BUFFER_LCD = LCD_COLUMNAS + 1, TAMANO_BUFFER_COMANDO = 48;
+constexpr TickType_t ESPERA_COLA_SIN_BLOQUEO_TICKS = 0;
+constexpr uint32_t TAMANO_PILA_TAREA_SERIAL = 3072, TAMANO_PILA_TAREA_FSM = 4096;
+constexpr UBaseType_t PRIORIDAD_TAREA_SERIAL = 1, PRIORIDAD_TAREA_FSM = 2;
 
 enum Estado { DISPONIBLE, ACTIVO, DESHABILITADO, ENFRIAMIENTO };
 enum Evento { AUTORIZACION, FINALIZAR_USO, RECARGAR, CREDITO_AGOTADO, TIMEOUT_SIN_USO,
@@ -33,16 +42,16 @@ float saldoWh = 0.0f, temperaturaC = 0.0f, corrienteA = 0.0f;
 unsigned long ultimoDisplayMs = 0, inicioSinUsoMs = 0, ultimaMedicionCreditoMs = 0;
 
 float convertirTemperatura(int lectura) {
-  lectura = constrain(lectura, 1, ADC_MAXIMO - 1);
-  return 1.0f / (log(1.0f / (ADC_MAXIMO / (float)lectura - 1.0f)) / BETA_NTC + 1.0f / 298.15f) - 273.15f;
+  lectura = constrain(lectura, ADC_LECTURA_MINIMA_VALIDA, ADC_LECTURA_MAXIMA_VALIDA);
+  return 1.0f / (log(1.0f / (ADC_MAXIMO / (float)lectura - 1.0f)) / BETA_NTC + 1.0f / TEMPERATURA_REFERENCIA_NTC_K) - DIFERENCIA_KELVIN_CELSIUS;
 }
 
 void actualizarDisplay() {
-  char linea[LCD_COLUMNAS + 1];
+  char linea[TAMANO_BUFFER_LCD];
   snprintf(linea, sizeof(linea), "%-4s %6.1fWh", NOMBRE_ESTADO[estadoActual], saldoWh);
-  lcd.setCursor(0, 0); lcd.print(linea);
+  lcd.setCursor(LCD_COLUMNA_INICIAL, LCD_FILA_ESTADO); lcd.print(linea);
   snprintf(linea, sizeof(linea), "I:%3.1fA T:%4.1f", corrienteA, temperaturaC);
-  lcd.setCursor(0, 1); lcd.print(linea);
+  lcd.setCursor(LCD_COLUMNA_INICIAL, LCD_FILA_MEDICIONES); lcd.print(linea);
 }
 
 void aplicarActuadores() {
@@ -74,7 +83,7 @@ bool actualizarSaldo(unsigned long ahora) {
   const unsigned long transcurridoMs = ahora - ultimaMedicionCreditoMs;
   ultimaMedicionCreditoMs = ahora;
   if (estadoActual != ACTIVO || corrienteA <= CORRIENTE_MINIMA_A || transcurridoMs == 0) return false;
-  const float consumoWh = TENSION_NOMINAL_CARGA_V * corrienteA * (transcurridoMs / 3600000.0f) * FACTOR_ACELERACION;
+  const float consumoWh = TENSION_NOMINAL_CARGA_V * corrienteA * (transcurridoMs / MILISEGUNDOS_POR_HORA) * FACTOR_ACELERACION;
   if (consumoWh >= saldoWh) {
     saldoWh = 0.0f;
     Serial.println("Credito agotado automaticamente; carga desactivada.");
@@ -91,7 +100,7 @@ Mensaje obtenerEvento() {
   if (actualizarSaldo(ahora)) return { CREDITO_AGOTADO, 0.0f };
 
   Mensaje mensaje;
-  if (xQueueReceive(colaEventos, &mensaje, 0) == pdTRUE) return mensaje;
+  if (xQueueReceive(colaEventos, &mensaje, ESPERA_COLA_SIN_BLOQUEO_TICKS) == pdTRUE) return mensaje;
   if (estadoActual == ACTIVO && temperaturaC >= TEMP_CRITICA_C) return { TEMPERATURA_CRITICA, 0.0f };
   if (estadoActual == ACTIVO && temperaturaC >= TEMP_ALTA_C) return { TEMPERATURA_ALTA, 0.0f };
   if (estadoActual == ENFRIAMIENTO && temperaturaC >= TEMP_CRITICA_C) return { TEMPERATURA_CRITICA, 0.0f };
@@ -275,7 +284,7 @@ void maquinaEstados() {
 
 bool encolar(Evento evento, float creditoWh = 0.0f) {
   Mensaje mensaje = { evento, creditoWh };
-  if (xQueueSend(colaEventos, &mensaje, 0) == pdTRUE) return true;
+  if (xQueueSend(colaEventos, &mensaje, ESPERA_COLA_SIN_BLOQUEO_TICKS) == pdTRUE) return true;
   Serial.println("Comando rechazado: cola de eventos llena.");
   return false;
 }
@@ -302,7 +311,7 @@ void procesarLinea(char *linea) {
 }
 
 void tareaSerial(void *) {
-  char linea[48]; size_t longitud = 0;
+  char linea[TAMANO_BUFFER_COMANDO]; size_t longitud = 0;
   for (;;) {
     while (Serial.available()) {
       const char caracter = (char)Serial.read();
@@ -321,7 +330,7 @@ void tareaFSM(void *) {
 }
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(VELOCIDAD_SERIAL_BPS);
   pinMode(PIN_COOLER_REFRIGERACION, OUTPUT); pinMode(PIN_RELE_CARGA, OUTPUT); pinMode(PIN_LED_CARGA, OUTPUT);
   pinMode(PIN_CORRIENTE, INPUT); pinMode(PIN_TEMPERATURA, INPUT);
   estadoActual = DISPONIBLE;
@@ -329,7 +338,7 @@ void setup() {
   ultimaMedicionCreditoMs = millis();
   colaEventos = xQueueCreate(LARGO_COLA_EVENTOS, sizeof(Mensaje)); configASSERT(colaEventos);
   Serial.println("Comandos por linea: c <Wh>, a, f, d, h");
-  xTaskCreate(tareaSerial, "Serial", 3072, nullptr, 1, nullptr);
-  xTaskCreate(tareaFSM, "FSM", 4096, nullptr, 2, nullptr);
+  xTaskCreate(tareaSerial, "Serial", TAMANO_PILA_TAREA_SERIAL, nullptr, PRIORIDAD_TAREA_SERIAL, nullptr);
+  xTaskCreate(tareaFSM, "FSM", TAMANO_PILA_TAREA_FSM, nullptr, PRIORIDAD_TAREA_FSM, nullptr);
 }
 void loop() { vTaskDelay(portMAX_DELAY); }
