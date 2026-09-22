@@ -55,7 +55,7 @@ void actualizarDisplay() {
 }
 
 void aplicarActuadores() {
-  const bool cargaActiva = estadoActual == ACTIVO;
+  const bool cargaActiva = (estadoActual == ACTIVO || estadoActual == ENFRIAMIENTO);
   digitalWrite(PIN_RELE_CARGA, cargaActiva ? RELE_ACTIVO : RELE_INACTIVO);
   digitalWrite(PIN_LED_CARGA, cargaActiva ? HIGH : LOW);
   digitalWrite(PIN_COOLER_REFRIGERACION, estadoActual == ENFRIAMIENTO ? HIGH : LOW);
@@ -78,11 +78,11 @@ void recargar(float creditoWh) {
   actualizarDisplay();
 }
 
-// Consumo = 12 V x corriente x horas reales x 60. Solo ACTIVO y > 0,2 A.
+// Consumo = 12 V x corriente x horas reales x 60. Solo ACTIVO o ENFRIAMIENTO y > 0,2 A.
 bool actualizarSaldo(unsigned long ahora) {
   const unsigned long transcurridoMs = ahora - ultimaMedicionCreditoMs;
   ultimaMedicionCreditoMs = ahora;
-  if (estadoActual != ACTIVO || corrienteA <= CORRIENTE_MINIMA_A || transcurridoMs == 0) return false;
+  if ((estadoActual != ACTIVO && estadoActual != ENFRIAMIENTO) || corrienteA <= CORRIENTE_MINIMA_A || transcurridoMs == 0) return false;
   const float consumoWh = TENSION_NOMINAL_CARGA_V * corrienteA * (transcurridoMs / MILISEGUNDOS_POR_HORA) * FACTOR_ACELERACION;
   if (consumoWh >= saldoWh) {
     saldoWh = 0.0f;
