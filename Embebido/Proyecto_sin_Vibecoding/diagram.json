@@ -8,9 +8,9 @@
     {
       "type": "wokwi-esp32-devkit-v1",
       "id": "esp",
-      "top": 12.1,
-      "left": 253.2,
-      "rotate": 180,
+      "top": -112.1,
+      "left": 226,
+      "rotate": 270,
       "attrs": {}
     },
     {
@@ -78,13 +78,13 @@
       "type": "wokwi-text",
       "id": "text3",
       "top": -153.6,
-      "left": 633.6,
+      "left": 643.2,
       "attrs": { "text": "RELE ACTIVO EN BAJO\nProxy del cooler de carga 12 V" }
     },
     {
       "type": "wokwi-text",
       "id": "text4",
-      "top": -134.4,
+      "top": -144,
       "left": 1065.6,
       "attrs": { "text": "POTENCIOMETRO: corriente simulada 0-5 A\nNo emula offset/sensibilidad ACS712" }
     },
@@ -105,8 +105,8 @@
     {
       "type": "wokwi-text",
       "id": "text8",
-      "top": -211.2,
-      "left": 48,
+      "top": -432,
+      "left": 144,
       "attrs": { "text": "MEDIA PROTOBOARD: proxy cooler refrigeracion" }
     },
     {
@@ -117,37 +117,66 @@
       "attrs": {
         "text": "Fisico: ACS712 a 5 V; OUT--10k--GPIO32--20k--GND.\nEl divisor y el cooler de 12 V no se simulan electricamente en Wokwi."
       }
+    },
+    { "type": "wokwi-gnd", "id": "gnd1", "top": -163.2, "left": 114.6, "attrs": {} },
+    { "type": "wokwi-vcc", "id": "vcc1", "top": -248.84, "left": 115.2, "attrs": {} },
+    {
+      "type": "wokwi-text",
+      "id": "text2",
+      "top": -211.2,
+      "left": 38.4,
+      "attrs": { "text": "Fuente 12V" }
+    },
+    { "type": "wokwi-gnd", "id": "gnd2", "top": 57.6, "left": 1180.2, "attrs": {} },
+    { "type": "wokwi-vcc", "id": "vcc2", "top": -28.04, "left": 1180.8, "attrs": {} },
+    {
+      "type": "wokwi-text",
+      "id": "text7",
+      "top": 19.2,
+      "left": 1200,
+      "attrs": { "text": "Fuente externa 5V" }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "text10",
+      "top": 201.6,
+      "left": 1142.4,
+      "attrs": { "text": "Alimentado por circuito ESP 3,3V" }
     }
   ],
   "connections": [
     [ "esp:TX0", "$serialMonitor:RX", "", [] ],
     [ "esp:RX0", "$serialMonitor:TX", "", [] ],
-    [ "esp:GND.2", "bb1:tn.1", "black", [ "h19.2", "v-28.7" ] ],
-    [ "esp:VIN", "bb1:tp.1", "red", [ "h57.6", "v-28.8" ] ],
-    [ "esp:3V3", "bb1:bp.1", "red", [ "v0", "h-9.3", "v163.2", "h115.2", "v-19.2" ] ],
-    [ "esp:GND.1", "bb1:bn.1", "black", [ "h-18.9", "v163.3", "h134.4", "v-19.2" ] ],
     [ "ntc1:VCC", "bb1:bp.18", "red", [ "v0" ] ],
     [ "ntc1:GND", "bb1:bn.17", "black", [ "v0" ] ],
-    [ "esp:D35", "ntc1:OUT", "green", [ "h48", "v77.2", "h326.4", "v9.6" ] ],
-    [ "relay1:IN", "esp:D26", "green", [ "v38.4", "h-173", "v105.6", "h0" ] ],
+    [ "esp:D35", "ntc1:OUT", "green", [ "h-0.4", "v201.6", "h489.6", "v57.6" ] ],
+    [ "relay1:IN", "esp:D26", "violet", [ "v38.4", "h-0.2", "v86.4", "h-335.9" ] ],
     [ "relay1:VCC", "bb1:tp.7", "red", [ "v0" ] ],
     [ "relay1:GND", "bb1:tn.8", "black", [ "v0" ] ],
     [ "lcd1:VCC", "bb1:tp.27", "red", [ "h0" ] ],
     [ "lcd1:GND", "bb1:tn.26", "black", [ "h0" ] ],
-    [ "lcd1:SDA", "esp:D21", "green", [ "h-307.2", "v134.6", "h-364.8", "v316.4" ] ],
-    [ "lcd1:SCL", "esp:D22", "blue", [ "h-297.6", "v144.3", "h-364.8", "v326.1" ] ],
-    [ "pot1:VCC", "esp:3V3", "red", [ "v48", "h-807.2", "v96" ] ],
-    [ "pot1:GND", "esp:GND.1", "black", [ "v57.6", "h-777.6", "v95.9" ] ],
-    [ "esp:D27", "r2:1", "green", [] ],
+    [ "lcd1:SDA", "esp:D21", "orange", [ "h-307.2", "v134.6", "h-316.8", "v105.3" ] ],
+    [ "lcd1:SCL", "esp:D22", "blue", [ "h-297.6", "v144.3", "h-355.2", "v86.1" ] ],
+    [ "esp:D27", "r2:1", "gray", [ "v0.3", "h-0.3", "v191.7", "h595.2" ] ],
     [ "r2:2", "led2:A", "green", [] ],
-    [ "esp:D12", "r1:1", "green", [ "h19.2", "v-220.1", "h38.4" ] ],
-    [ "r1:2", "led1:A", "green", [ "v-9.6", "h-58.8" ] ],
-    [ "led1:C", "esp:GND.2", "black", [] ],
+    [ "esp:D12", "r1:1", "#8f4814", [ "v38.4", "h104.9" ] ],
+    [ "r1:2", "led1:A", "#8f4814", [ "v-9.6", "h-58.8" ] ],
+    [ "led2:C", "bb1:bn.33", "black", [ "v0" ] ],
+    [ "pot1:GND", "bb1:tn.43", "black", [ "v0" ] ],
+    [ "bb2:bn.1", "gnd1:GND", "black", [ "v-1.3", "h-94.4" ] ],
+    [ "bb2:bp.1", "vcc1:VCC", "red", [ "v-0.9", "h-94.4" ] ],
+    [ "bb1:tn.50", "gnd2:GND", "black", [ "v-0.1", "h104.8" ] ],
+    [ "bb1:tp.50", "vcc2:VCC", "red", [ "v0.3", "h104.8" ] ],
+    [ "esp:VIN", "bb1:bp.1", "red", [ "v0" ] ],
+    [ "esp:GND.2", "bb1:bn.1", "black", [ "v0" ] ],
+    [ "esp:GND.1", "bb1:tn.1", "black", [ "v-28.5", "h76.7", "v124.9" ] ],
     [ "led1:A", "bb2:22b.f", "", [ "$bb" ] ],
     [ "led1:C", "bb2:21b.f", "", [ "$bb" ] ],
     [ "r1:1", "bb2:22b.g", "", [ "$bb" ] ],
     [ "r1:2", "bb2:28b.g", "", [ "$bb" ] ],
-    [ "led2:C", "bb1:bn.33", "black", [ "v0" ] ]
+    [ "esp:D32", "pot1:SIG", "green", [ "v76.8", "h768.3" ] ],
+    [ "led1:C", "bb2:bn.17", "black", [ "v0" ] ],
+    [ "pot1:VCC", "bb1:tp.45", "red", [ "v0" ] ]
   ],
   "dependencies": {}
 }
