@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Control energético</string>
+    <string name="titulo_monitoreo">Monitoreo del equipo</string>
+    <string name="modo_simulado">Modo simulado · Sin conexión al ESP32</string>
+    <string name="estado_simulado">Estado: DISPONIBLE</string>
+    <string name="saldo_simulado">Saldo energético: 100 Wh</string>
+    <string name="corriente_simulada">Corriente: 0 A</string>
+    <string name="temperatura_simulada">Temperatura: 25 °C</string>
+    <string name="aclaracion_simulacion">Estos valores son ejemplos fijos para probar la pantalla. Todavía no se reciben mediciones del equipo.</string>
+</resources>
