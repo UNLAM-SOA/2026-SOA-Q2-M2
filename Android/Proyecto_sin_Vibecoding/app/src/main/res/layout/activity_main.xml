@@ -59,6 +59,23 @@
             android:text="@string/temperatura_simulada"
             android:textSize="20sp" />
 
+        <EditText
+            android:id="@+id/recargaInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:minHeight="48dp"
+            android:hint="Cantidad a recargar (Wh)"
+            android:inputType="numberDecimal"
+            android:maxLines="1" />
+
+        <Button
+            android:id="@+id/recargarBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Recargar" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

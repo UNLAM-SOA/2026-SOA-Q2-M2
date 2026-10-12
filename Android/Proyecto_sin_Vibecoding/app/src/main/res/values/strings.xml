@@ -6,5 +6,5 @@
     <string name="saldo_simulado">Saldo energético: 100 Wh</string>
     <string name="corriente_simulada">Corriente: 0 A</string>
     <string name="temperatura_simulada">Temperatura: 25 °C</string>
-    <string name="aclaracion_simulacion">Estos valores son ejemplos fijos para probar la pantalla. Todavía no se reciben mediciones del equipo.</string>
+    <string name="aclaracion_simulacion">Las mediciones y las recargas son simuladas para probar la pantalla. Todavía no hay comunicación con el equipo.</string>
 </resources>
