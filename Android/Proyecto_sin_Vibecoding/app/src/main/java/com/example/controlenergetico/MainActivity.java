@@ -17,6 +17,12 @@ import java.util.Locale;
 // Pantalla de monitoreo y recarga simulada, sin comunicación con el ESP32.
 public class MainActivity extends AppCompatActivity {
 
+    private enum Estado { DISPONIBLE, ACTIVO }
+
+    private Estado estado = Estado.DISPONIBLE;
+    private TextView estadoTxt;
+    private Button autorizarBtn;
+    private Button finalizarBtn;
     private TextView saldoTxt;
     private EditText recargaInput;
     private Button recargarBtn;
@@ -28,6 +34,11 @@ public class MainActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
 
+        estadoTxt = findViewById(R.id.tvEstado);
+        autorizarBtn = findViewById(R.id.autorizarBtn);
+        finalizarBtn = findViewById(R.id.finalizarBtn);
+        autorizarBtn.setOnClickListener(listener);
+        finalizarBtn.setOnClickListener(listener);
         saldoTxt = findViewById(R.id.tvSaldo);
         recargaInput = findViewById(R.id.recargaInput);
         recargarBtn = findViewById(R.id.recargarBtn);
@@ -36,8 +47,12 @@ public class MainActivity extends AppCompatActivity {
         // Recuperar el saldo si Android recreó la pantalla, por ejemplo al girarla.
         if (savedInstanceState != null) {
             saldo = savedInstanceState.getDouble("saldo", 100);
+            if (savedInstanceState.getBoolean("usoActivo", false)) {
+                estado = Estado.ACTIVO;
+            }
         }
         actualizarSaldo();
+        actualizarEstado();
 
         ajustarEspacioBarrasSistema();
     }
@@ -70,6 +85,10 @@ public class MainActivity extends AppCompatActivity {
     View.OnClickListener listener = v -> {
         if (v.getId() == R.id.recargarBtn) {
             recargarSaldo();
+        } else if (v.getId() == R.id.autorizarBtn) {
+            autorizarUso();
+        } else if (v.getId() == R.id.finalizarBtn) {
+            finalizarUso();
         }
     };
 
@@ -100,8 +119,29 @@ public class MainActivity extends AppCompatActivity {
 
         saldo += cantidad;
         actualizarSaldo();
+        actualizarEstado();
         recargaInput.setText("");
         recargaInput.setError(null);
+    }
+
+    private void autorizarUso() {
+        if (estado == Estado.DISPONIBLE && saldo > 0) {
+            estado = Estado.ACTIVO;
+            actualizarEstado();
+        }
+    }
+
+    private void finalizarUso() {
+        if (estado == Estado.ACTIVO) {
+            estado = Estado.DISPONIBLE;
+            actualizarEstado();
+        }
+    }
+
+    private void actualizarEstado() {
+        estadoTxt.setText("Estado: " + estado.name());
+        autorizarBtn.setEnabled(estado == Estado.DISPONIBLE && saldo > 0);
+        finalizarBtn.setEnabled(estado == Estado.ACTIVO);
     }
 
     private void actualizarSaldo() {
@@ -112,6 +152,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         outState.putDouble("saldo", saldo);
+        outState.putBoolean("usoActivo", estado == Estado.ACTIVO);
         super.onSaveInstanceState(outState);
     }
 }

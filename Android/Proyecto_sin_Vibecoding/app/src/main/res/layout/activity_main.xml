@@ -76,6 +76,21 @@
             android:layout_marginTop="8dp"
             android:text="Recargar" />
 
+        <Button
+            android:id="@+id/autorizarBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Autorizar uso" />
+
+        <Button
+            android:id="@+id/finalizarBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:enabled="false"
+            android:text="Finalizar uso" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
