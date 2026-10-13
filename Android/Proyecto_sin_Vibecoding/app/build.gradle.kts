@@ -32,6 +32,8 @@ android {
 }
 
 dependencies {
+    // Cliente MQTT usado en el ejemplo
+    implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
     implementation(libs.activity.ktx)
     implementation(libs.appcompat)
     implementation(libs.constraintlayout)
