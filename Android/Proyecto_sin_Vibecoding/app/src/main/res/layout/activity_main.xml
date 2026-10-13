@@ -28,6 +28,27 @@
             android:textSize="16sp" />
 
         <TextView
+            android:id="@+id/conexionTxt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="MQTT: desconectado"
+            android:textSize="16sp" />
+
+        <Button
+            android:id="@+id/conectarBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Conectar MQTT" />
+
+        <Button
+            android:id="@+id/desconectarBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:text="Desconectar MQTT" />
+
+        <TextView
             android:id="@+id/tvEstado"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

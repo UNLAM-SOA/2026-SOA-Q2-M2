@@ -1,6 +1,13 @@
 package com.example.controlenergetico;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -9,12 +16,33 @@ import android.widget.TextView;
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
+import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import org.eclipse.paho.client.mqttv3.MqttException;
 
 public class MainActivity extends AppCompatActivity {
+
+    private TextView conexionTxt;
+    private Button conectarBtn;
+    private Button desconectarBtn;
+    private MqttHandler mqttHandler;
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private boolean pantallaCerrada;
+
+    private final BroadcastReceiver mqttReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (MqttHandler.ACTION_CONNECTION_LOST.equals(intent.getAction())) {
+                mostrarConexion("MQTT: conexión perdida", false);
+            }
+        }
+    };
 
     private enum Estado { DISPONIBLE, ACTIVO, ENFRIAMIENTO, DESHABILITADO }
 
@@ -42,6 +70,16 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
+
+        conexionTxt = findViewById(R.id.conexionTxt);
+        conectarBtn = findViewById(R.id.conectarBtn);
+        desconectarBtn = findViewById(R.id.desconectarBtn);
+        conectarBtn.setOnClickListener(listener);
+        desconectarBtn.setOnClickListener(listener);
+        mqttHandler = new MqttHandler(this);
+        IntentFilter filter = new IntentFilter(MqttHandler.ACTION_CONNECTION_LOST);
+        // Recibir únicamente los broadcasts enviados por nuestra app.
+        ContextCompat.registerReceiver(this, mqttReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
 
         temperaturaTxt = findViewById(R.id.tvTemperatura);
         temperaturaInput = findViewById(R.id.temperaturaInput);
@@ -95,7 +133,11 @@ public class MainActivity extends AppCompatActivity {
 
     // Se ejecuta cuando el usuario toca un botón asociado a este listener.
     View.OnClickListener listener = v -> {
-        if (v.getId() == R.id.recargarBtn) {
+        if (v.getId() == R.id.conectarBtn) {
+            conectarMqtt();
+        } else if (v.getId() == R.id.desconectarBtn) {
+            desconectarMqtt();
+        } else if (v.getId() == R.id.recargarBtn) {
             recargarSaldo();
         } else if (v.getId() == R.id.autorizarBtn) {
             autorizarUso();
@@ -109,6 +151,71 @@ public class MainActivity extends AppCompatActivity {
             simularConsumo();
         }
     };
+
+    private void conectarMqtt() {
+        conexionTxt.setText("MQTT: conectando…");
+        conectarBtn.setEnabled(false);
+        desconectarBtn.setEnabled(false);
+
+        // La espera de red ocurre en otro hilo para no congelar la pantalla.
+        executorService.execute(() -> {
+            try {
+                mqttHandler.connect();
+                handler.post(() -> {
+                    if (!pantallaCerrada) mostrarConexion("MQTT: conectado al broker", true);
+                });
+            } catch (MqttException e) {
+                Log.e("MQTT", "No se pudo conectar", e);
+                handler.post(() -> {
+                    if (!pantallaCerrada) mostrarConexion("MQTT: no se pudo conectar", false);
+                });
+            }
+        });
+    }
+
+    private void desconectarMqtt() {
+        conexionTxt.setText("MQTT: desconectando…");
+        conectarBtn.setEnabled(false);
+        desconectarBtn.setEnabled(false);
+        executorService.execute(() -> {
+            try {
+                mqttHandler.disconnect();
+                handler.post(() -> {
+                    if (!pantallaCerrada) mostrarConexion("MQTT: desconectado", false);
+                });
+            } catch (MqttException e) {
+                Log.e("MQTT", "No se pudo desconectar", e);
+                boolean conectado = mqttHandler.isConnected();
+                handler.post(() -> {
+                    if (!pantallaCerrada) mostrarConexion("MQTT: error al desconectar", conectado);
+                });
+            }
+        });
+    }
+
+    // Este método se llama en el hilo principal, donde se actualiza la pantalla.
+    private void mostrarConexion(String texto, boolean conectado) {
+        conexionTxt.setText(texto);
+        conectarBtn.setEnabled(!conectado);
+        desconectarBtn.setEnabled(conectado);
+    }
+
+    @Override
+    protected void onDestroy() {
+        pantallaCerrada = true;
+        unregisterReceiver(mqttReceiver);
+        handler.removeCallbacksAndMessages(null);
+        // La desconexión espera su turno si todavía hay una conexión en curso.
+        executorService.execute(() -> {
+            try {
+                mqttHandler.disconnect();
+            } catch (MqttException e) {
+                Log.e("MQTT", "Error al cerrar la conexión", e);
+            }
+        });
+        executorService.shutdown();
+        super.onDestroy();
+    }
 
     private void recargarSaldo() {
         String texto = recargaInput.getText().toString().trim();
