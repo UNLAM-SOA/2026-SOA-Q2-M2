@@ -3,6 +3,8 @@ package com.example.controlenergetico;
 import android.content.Context;
 import android.content.Intent;
 
+import java.nio.charset.StandardCharsets;
+
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
@@ -19,6 +21,8 @@ public class MqttHandler implements MqttCallback {
     public static final String ACTION_DATA_RECEIVE =
             "com.example.controlenergetico.ACTION_DATA_RECEIVE";
     public static final String TOPIC_PRUEBA = "soa/2026/q2/m2/equipo1/prueba";
+
+    public static final String TOPIC_COMANDOS = "soa/2026/q2/m2/equipo1/comandos";
 
     private static final String BROKER_URL = "tcp://broker.emqx.io:1883";
     private final String clientId = MqttClient.generateClientId();
@@ -38,6 +42,7 @@ public class MqttHandler implements MqttCallback {
         if (client == null) {
             client = new MqttClient(BROKER_URL, clientId, new MemoryPersistence());
             client.setCallback(this);
+            client.setTimeToWait(10000);
         }
 
         MqttConnectOptions options = new MqttConnectOptions();
@@ -48,6 +53,17 @@ public class MqttHandler implements MqttCallback {
 
     public void subscribe(String topic) throws MqttException {
         client.subscribe(topic, 0);
+    }
+
+    public void publish(String topic, String mensaje) throws MqttException {
+        if (!isConnected()) {
+            throw new MqttException(MqttException.REASON_CODE_CLIENT_NOT_CONNECTED);
+        }
+        MqttMessage mqttMessage = new MqttMessage(mensaje.getBytes(StandardCharsets.UTF_8));
+        mqttMessage.setQos(1);
+        // No guardar comandos para entregarlos a futuros suscriptores.
+        mqttMessage.setRetained(false);
+        client.publish(topic, mqttMessage);
     }
 
     // Ejecutar también desde el hilo secundario.

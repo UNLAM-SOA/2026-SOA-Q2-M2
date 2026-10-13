@@ -29,6 +29,10 @@ import org.json.JSONException;
 
 public class MainActivity extends AppCompatActivity {
 
+    private TextView comandoTxt;
+    private Button enviarAutorizacionBtn;
+    private boolean conexionActiva;
+    private boolean enviandoComando;
     private TextView conexionTxt;
     private TextView ultimoMensajeTxt;
     private TextView estadoMqttTxt;
@@ -85,6 +89,9 @@ public class MainActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
 
+        comandoTxt = findViewById(R.id.comandoTxt);
+        enviarAutorizacionBtn = findViewById(R.id.enviarAutorizacionBtn);
+        enviarAutorizacionBtn.setOnClickListener(listener);
         conexionTxt = findViewById(R.id.conexionTxt);
         ultimoMensajeTxt = findViewById(R.id.ultimoMensajeTxt);
         estadoMqttTxt = findViewById(R.id.estadoMqttTxt);
@@ -153,7 +160,9 @@ public class MainActivity extends AppCompatActivity {
 
     // Se ejecuta cuando el usuario toca un botón asociado a este listener.
     View.OnClickListener listener = v -> {
-        if (v.getId() == R.id.conectarBtn) {
+        if (v.getId() == R.id.enviarAutorizacionBtn) {
+            enviarAutorizacion();
+        } else if (v.getId() == R.id.conectarBtn) {
             conectarMqtt();
         } else if (v.getId() == R.id.desconectarBtn) {
             desconectarMqtt();
@@ -215,7 +224,35 @@ public class MainActivity extends AppCompatActivity {
         return numero;
     }
 
+    private void enviarAutorizacion() {
+        if (!conexionActiva || enviandoComando) return;
+        enviandoComando = true;
+        enviarAutorizacionBtn.setEnabled(false);
+        comandoTxt.setText("Enviando autorización…");
+
+        executorService.execute(() -> {
+            String resultado;
+            try {
+                mqttHandler.publish(MqttHandler.TOPIC_COMANDOS, "{\"comando\":\"AUTORIZAR\"}");
+                resultado = "Autorización enviada al broker. Sin confirmación del equipo.";
+            } catch (MqttException e) {
+                Log.e("MQTT", "Error al enviar autorización", e);
+                resultado = "No se pudo confirmar el envío de la autorización.";
+            }
+            final String texto = resultado;
+            handler.post(() -> {
+                if (!pantallaCerrada) {
+                    comandoTxt.setText(texto);
+                    enviandoComando = false;
+                    enviarAutorizacionBtn.setEnabled(conexionActiva);
+                }
+            });
+        });
+    }
+
     private void conectarMqtt() {
+        conexionActiva = false;
+        enviarAutorizacionBtn.setEnabled(false);
         conexionTxt.setText("MQTT: conectando…");
         conectarBtn.setEnabled(false);
         desconectarBtn.setEnabled(false);
@@ -244,6 +281,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void desconectarMqtt() {
+        conexionActiva = false;
+        enviarAutorizacionBtn.setEnabled(false);
         conexionTxt.setText("MQTT: desconectando…");
         conectarBtn.setEnabled(false);
         desconectarBtn.setEnabled(false);
@@ -265,6 +304,8 @@ public class MainActivity extends AppCompatActivity {
 
     // Este método se llama en el hilo principal, donde se actualiza la pantalla.
     private void mostrarConexion(String texto, boolean conectado) {
+        conexionActiva = conectado;
+        enviarAutorizacionBtn.setEnabled(conectado && !enviandoComando);
         conexionTxt.setText(texto);
         conectarBtn.setEnabled(!conectado);
         desconectarBtn.setEnabled(conectado);

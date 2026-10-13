@@ -48,6 +48,21 @@
             android:enabled="false"
             android:text="Desconectar MQTT" />
 
+        <Button
+            android:id="@+id/enviarAutorizacionBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:text="Enviar autorización MQTT" />
+
+        <TextView
+            android:id="@+id/comandoTxt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Comandos: sin envíos"
+            android:textSize="16sp" />
+
         <TextView
             android:id="@+id/ultimoMensajeTxt"
             android:layout_width="match_parent"
