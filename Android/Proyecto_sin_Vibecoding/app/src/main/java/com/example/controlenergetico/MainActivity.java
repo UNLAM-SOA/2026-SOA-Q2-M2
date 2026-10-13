@@ -31,6 +31,8 @@ public class MainActivity extends AppCompatActivity {
 
     private TextView conexionTxt;
     private TextView ultimoMensajeTxt;
+    private TextView estadoMqttTxt;
+    private TextView temperaturaMqttTxt;
     private Button conectarBtn;
     private Button desconectarBtn;
     private MqttHandler mqttHandler;
@@ -48,7 +50,7 @@ public class MainActivity extends AppCompatActivity {
                 String mensaje = intent.getStringExtra("mensaje");
                 if (MqttHandler.TOPIC_PRUEBA.equals(topic) && mensaje != null) {
                     ultimoMensajeTxt.setText("Último mensaje: " + mensaje);
-                    mostrarTemperaturaMqtt(mensaje);
+                    mostrarDatosMqtt(mensaje);
                 }
             }
         }
@@ -83,6 +85,8 @@ public class MainActivity extends AppCompatActivity {
 
         conexionTxt = findViewById(R.id.conexionTxt);
         ultimoMensajeTxt = findViewById(R.id.ultimoMensajeTxt);
+        estadoMqttTxt = findViewById(R.id.estadoMqttTxt);
+        temperaturaMqttTxt = findViewById(R.id.temperaturaMqttTxt);
         conectarBtn = findViewById(R.id.conectarBtn);
         desconectarBtn = findViewById(R.id.desconectarBtn);
         conectarBtn.setOnClickListener(listener);
@@ -164,7 +168,7 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-    private void mostrarTemperaturaMqtt(String mensaje) {
+    private void mostrarDatosMqtt(String mensaje) {
         try {
             JSONObject datos = new JSONObject(mensaje);
             Object valor = datos.get("temperatura");
@@ -176,12 +180,20 @@ public class MainActivity extends AppCompatActivity {
                 throw new JSONException("La temperatura no es válida");
             }
 
-            // Mostrar la medición sin modificar la temperatura usada por la FSM simulada.
-            temperaturaTxt.setText(String.format(Locale.getDefault(),
+            Object valorEstado = datos.get("estado");
+            if (!(valorEstado instanceof String)) {
+                throw new JSONException("El estado debe ser un texto");
+            }
+            // valueOf acepta únicamente los nombres definidos en el enum Estado.
+            Estado estadoRecibido = Estado.valueOf((String) valorEstado);
+
+            // Mostrar ambos datos solo si todo el mensaje es válido, sin cambiar la simulación.
+            temperaturaMqttTxt.setText(String.format(Locale.getDefault(),
                     "Temperatura MQTT: %.2f °C", temperaturaRecibida));
-        } catch (JSONException e) {
-            ultimoMensajeTxt.setText("Error MQTT: enviá un JSON con temperatura numérica");
-            Log.e("MQTT", "Mensaje de temperatura inválido", e);
+            estadoMqttTxt.setText("Estado MQTT: " + estadoRecibido.name());
+        } catch (JSONException | IllegalArgumentException e) {
+            ultimoMensajeTxt.setText("Error MQTT: revisá la temperatura numérica y el estado válido");
+            Log.e("MQTT", "Mensaje de datos inválido", e);
         }
     }
 

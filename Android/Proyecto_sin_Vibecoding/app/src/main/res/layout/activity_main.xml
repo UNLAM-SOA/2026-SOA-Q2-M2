@@ -57,6 +57,38 @@
             android:textSize="16sp" />
 
         <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="Datos recibidos por MQTT"
+            android:textStyle="bold"
+            android:textSize="20sp" />
+
+        <TextView
+            android:id="@+id/estadoMqttTxt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Estado MQTT: sin datos"
+            android:textSize="18sp" />
+
+        <TextView
+            android:id="@+id/temperaturaMqttTxt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Temperatura MQTT: sin datos"
+            android:textSize="18sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="Simulación local"
+            android:textStyle="bold"
+            android:textSize="20sp" />
+
+        <TextView
             android:id="@+id/tvEstado"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
