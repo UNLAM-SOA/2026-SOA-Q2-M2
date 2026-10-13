@@ -81,6 +81,22 @@
             android:textSize="18sp" />
 
         <TextView
+            android:id="@+id/saldoMqttTxt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Saldo MQTT: sin datos"
+            android:textSize="18sp" />
+
+        <TextView
+            android:id="@+id/corrienteMqttTxt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Corriente MQTT: sin datos"
+            android:textSize="18sp" />
+
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"

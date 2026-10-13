@@ -33,6 +33,8 @@ public class MainActivity extends AppCompatActivity {
     private TextView ultimoMensajeTxt;
     private TextView estadoMqttTxt;
     private TextView temperaturaMqttTxt;
+    private TextView saldoMqttTxt;
+    private TextView corrienteMqttTxt;
     private Button conectarBtn;
     private Button desconectarBtn;
     private MqttHandler mqttHandler;
@@ -87,6 +89,8 @@ public class MainActivity extends AppCompatActivity {
         ultimoMensajeTxt = findViewById(R.id.ultimoMensajeTxt);
         estadoMqttTxt = findViewById(R.id.estadoMqttTxt);
         temperaturaMqttTxt = findViewById(R.id.temperaturaMqttTxt);
+        saldoMqttTxt = findViewById(R.id.saldoMqttTxt);
+        corrienteMqttTxt = findViewById(R.id.corrienteMqttTxt);
         conectarBtn = findViewById(R.id.conectarBtn);
         desconectarBtn = findViewById(R.id.desconectarBtn);
         conectarBtn.setOnClickListener(listener);
@@ -171,13 +175,11 @@ public class MainActivity extends AppCompatActivity {
     private void mostrarDatosMqtt(String mensaje) {
         try {
             JSONObject datos = new JSONObject(mensaje);
-            Object valor = datos.get("temperatura");
-            if (!(valor instanceof Number)) {
-                throw new JSONException("La temperatura debe ser un número");
-            }
-            double temperaturaRecibida = ((Number) valor).doubleValue();
-            if (!Double.isFinite(temperaturaRecibida)) {
-                throw new JSONException("La temperatura no es válida");
+            double temperaturaRecibida = leerNumeroMqtt(datos, "temperatura");
+            double saldoRecibido = leerNumeroMqtt(datos, "saldoWh");
+            double corrienteRecibida = leerNumeroMqtt(datos, "corrienteA");
+            if (saldoRecibido < 0 || corrienteRecibida < 0) {
+                throw new JSONException("El saldo y la corriente no pueden ser negativos");
             }
 
             Object valorEstado = datos.get("estado");
@@ -187,14 +189,30 @@ public class MainActivity extends AppCompatActivity {
             // valueOf acepta únicamente los nombres definidos en el enum Estado.
             Estado estadoRecibido = Estado.valueOf((String) valorEstado);
 
-            // Mostrar ambos datos solo si todo el mensaje es válido, sin cambiar la simulación.
+            // Actualizar los cuatro datos solo si el mensaje completo es válido.
             temperaturaMqttTxt.setText(String.format(Locale.getDefault(),
                     "Temperatura MQTT: %.2f °C", temperaturaRecibida));
             estadoMqttTxt.setText("Estado MQTT: " + estadoRecibido.name());
+            saldoMqttTxt.setText(String.format(Locale.getDefault(),
+                    "Saldo MQTT: %.2f Wh", saldoRecibido));
+            corrienteMqttTxt.setText(String.format(Locale.getDefault(),
+                    "Corriente MQTT: %.2f A", corrienteRecibida));
         } catch (JSONException | IllegalArgumentException e) {
-            ultimoMensajeTxt.setText("Error MQTT: revisá la temperatura numérica y el estado válido");
+            ultimoMensajeTxt.setText("Error MQTT: revisá temperatura, estado, saldoWh y corrienteA");
             Log.e("MQTT", "Mensaje de datos inválido", e);
         }
+    }
+
+    private double leerNumeroMqtt(JSONObject datos, String campo) throws JSONException {
+        Object valor = datos.get(campo);
+        if (!(valor instanceof Number)) {
+            throw new JSONException(campo + " debe ser un número");
+        }
+        double numero = ((Number) valor).doubleValue();
+        if (!Double.isFinite(numero)) {
+            throw new JSONException(campo + " no es válido");
+        }
+        return numero;
     }
 
     private void conectarMqtt() {
