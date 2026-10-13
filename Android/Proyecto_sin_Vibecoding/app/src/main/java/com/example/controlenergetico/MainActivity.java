@@ -33,6 +33,9 @@ public class MainActivity extends AppCompatActivity {
     private EditText recargaInput;
     private Button recargarBtn;
     private double saldo = 100;
+    // TODO: Quitar estos controles; el consumo real lo calcula el ESP32.
+    private EditText consumoInput;
+    private Button simularConsumoBtn;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,6 +54,9 @@ public class MainActivity extends AppCompatActivity {
         finalizarBtn = findViewById(R.id.finalizarBtn);
         autorizarBtn.setOnClickListener(listener);
         finalizarBtn.setOnClickListener(listener);
+        consumoInput = findViewById(R.id.consumoInput);
+        simularConsumoBtn = findViewById(R.id.simularConsumoBtn);
+        simularConsumoBtn.setOnClickListener(listener);
         saldoTxt = findViewById(R.id.tvSaldo);
         recargaInput = findViewById(R.id.recargaInput);
         recargarBtn = findViewById(R.id.recargarBtn);
@@ -99,6 +105,8 @@ public class MainActivity extends AppCompatActivity {
             aplicarTemperatura();
         } else if (v.getId() == R.id.habilitarBtn) {
             habilitarEquipo();
+        } else if (v.getId() == R.id.simularConsumoBtn) {
+            simularConsumo();
         }
     };
 
@@ -203,9 +211,41 @@ public class MainActivity extends AppCompatActivity {
 
     private void actualizarEstado() {
         estadoTxt.setText("Estado: " + estado.name());
+        boolean enUso = estado == Estado.ACTIVO || estado == Estado.ENFRIAMIENTO;
+        simularConsumoBtn.setEnabled(enUso);
+        consumoInput.setEnabled(enUso);
         autorizarBtn.setEnabled(estado == Estado.DISPONIBLE && saldo > 0);
         finalizarBtn.setEnabled(estado == Estado.ACTIVO || estado == Estado.ENFRIAMIENTO);
         habilitarBtn.setEnabled(estado == Estado.DESHABILITADO && temperatura <= 30);
+    }
+
+    // TODO: Quitar este descuento manual al recibir el saldo actualizado del ESP32.
+    private void simularConsumo() {
+        if (estado != Estado.ACTIVO && estado != Estado.ENFRIAMIENTO) {
+            return;
+        }
+
+        String texto = consumoInput.getText().toString().trim();
+        double consumo;
+        try {
+            consumo = Double.parseDouble(texto.replace(',', '.'));
+        } catch (NumberFormatException e) {
+            consumoInput.setError("Ingresá un consumo válido en Wh");
+            return;
+        }
+        if (!Double.isFinite(consumo) || consumo <= 0) {
+            consumoInput.setError("El consumo debe ser un número mayor que cero");
+            return;
+        }
+
+        saldo = Math.max(0, saldo - consumo);
+        if (saldo == 0) {
+            estado = Estado.DISPONIBLE;
+        }
+        actualizarSaldo();
+        actualizarEstado();
+        consumoInput.setText("");
+        consumoInput.setError(null);
     }
 
     private void actualizarSaldo() {

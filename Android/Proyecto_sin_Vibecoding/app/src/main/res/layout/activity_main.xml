@@ -91,6 +91,26 @@
             android:enabled="false"
             android:text="Finalizar uso" />
 
+        <!-- TODO: Quitar estos controles; se usan solo para probar consumo y saldo agotado. -->
+        <EditText
+            android:id="@+id/consumoInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:minHeight="48dp"
+            android:hint="Consumo simulado (Wh)"
+            android:inputType="numberDecimal"
+            android:enabled="false"
+            android:maxLines="1" />
+
+        <Button
+            android:id="@+id/simularConsumoBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:enabled="false"
+            android:text="Simular consumo" />
+
         <!-- TODO: Quitar el campo y botón de temperatura cuando se use el sensor del ESP32. -->
         <EditText
             android:id="@+id/temperaturaInput"
