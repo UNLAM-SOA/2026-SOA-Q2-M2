@@ -16,6 +16,10 @@ public class MqttHandler implements MqttCallback {
     public static final String ACTION_CONNECTION_LOST =
             "com.example.controlenergetico.ACTION_CONNECTION_LOST";
 
+    public static final String ACTION_DATA_RECEIVE =
+            "com.example.controlenergetico.ACTION_DATA_RECEIVE";
+    public static final String TOPIC_PRUEBA = "soa/2026/q2/m2/equipo1/prueba";
+
     private static final String BROKER_URL = "tcp://broker.emqx.io:1883";
     private final String clientId = MqttClient.generateClientId();
     private MqttClient client;
@@ -42,6 +46,10 @@ public class MqttHandler implements MqttCallback {
         client.connect(options);
     }
 
+    public void subscribe(String topic) throws MqttException {
+        client.subscribe(topic, 0);
+    }
+
     // Ejecutar también desde el hilo secundario.
     public void disconnect() throws MqttException {
         if (client == null) {
@@ -64,7 +72,12 @@ public class MqttHandler implements MqttCallback {
 
     @Override
     public void messageArrived(String topic, MqttMessage message) {
-        // Todavía no nos suscribimos a ningún topic.
+        // Paho recibe en otro hilo: enviar el dato a la Activity mediante un broadcast.
+        Intent intent = new Intent(ACTION_DATA_RECEIVE);
+        intent.setPackage(context.getPackageName());
+        intent.putExtra("topic", topic);
+        intent.putExtra("mensaje", message.toString());
+        context.sendBroadcast(intent);
     }
 
     @Override

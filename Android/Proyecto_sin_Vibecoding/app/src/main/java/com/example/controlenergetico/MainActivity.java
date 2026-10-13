@@ -28,6 +28,7 @@ import org.eclipse.paho.client.mqttv3.MqttException;
 public class MainActivity extends AppCompatActivity {
 
     private TextView conexionTxt;
+    private TextView ultimoMensajeTxt;
     private Button conectarBtn;
     private Button desconectarBtn;
     private MqttHandler mqttHandler;
@@ -40,6 +41,12 @@ public class MainActivity extends AppCompatActivity {
         public void onReceive(Context context, Intent intent) {
             if (MqttHandler.ACTION_CONNECTION_LOST.equals(intent.getAction())) {
                 mostrarConexion("MQTT: conexión perdida", false);
+            } else if (MqttHandler.ACTION_DATA_RECEIVE.equals(intent.getAction())) {
+                String topic = intent.getStringExtra("topic");
+                String mensaje = intent.getStringExtra("mensaje");
+                if (MqttHandler.TOPIC_PRUEBA.equals(topic) && mensaje != null) {
+                    ultimoMensajeTxt.setText("Último mensaje: " + mensaje);
+                }
             }
         }
     };
@@ -72,12 +79,14 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         conexionTxt = findViewById(R.id.conexionTxt);
+        ultimoMensajeTxt = findViewById(R.id.ultimoMensajeTxt);
         conectarBtn = findViewById(R.id.conectarBtn);
         desconectarBtn = findViewById(R.id.desconectarBtn);
         conectarBtn.setOnClickListener(listener);
         desconectarBtn.setOnClickListener(listener);
         mqttHandler = new MqttHandler(this);
         IntentFilter filter = new IntentFilter(MqttHandler.ACTION_CONNECTION_LOST);
+        filter.addAction(MqttHandler.ACTION_DATA_RECEIVE);
         // Recibir únicamente los broadcasts enviados por nuestra app.
         ContextCompat.registerReceiver(this, mqttReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
 
@@ -161,13 +170,20 @@ public class MainActivity extends AppCompatActivity {
         executorService.execute(() -> {
             try {
                 mqttHandler.connect();
+                mqttHandler.subscribe(MqttHandler.TOPIC_PRUEBA);
                 handler.post(() -> {
-                    if (!pantallaCerrada) mostrarConexion("MQTT: conectado al broker", true);
+                    if (!pantallaCerrada) mostrarConexion("MQTT: conectado y suscrito a prueba", true);
                 });
             } catch (MqttException e) {
-                Log.e("MQTT", "No se pudo conectar", e);
+                Log.e("MQTT", "No se pudo conectar o suscribir", e);
+                try {
+                    mqttHandler.disconnect();
+                } catch (MqttException errorCierre) {
+                    Log.e("MQTT", "Error al cerrar la conexión", errorCierre);
+                }
+                boolean conectado = mqttHandler.isConnected();
                 handler.post(() -> {
-                    if (!pantallaCerrada) mostrarConexion("MQTT: no se pudo conectar", false);
+                    if (!pantallaCerrada) mostrarConexion("MQTT: error al conectar o suscribir", conectado);
                 });
             }
         });
