@@ -91,6 +91,32 @@
             android:enabled="false"
             android:text="Finalizar uso" />
 
+        <!-- TODO: Quitar el campo y botón de temperatura cuando se use el sensor del ESP32. -->
+        <EditText
+            android:id="@+id/temperaturaInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:minHeight="48dp"
+            android:hint="Temperatura simulada (°C)"
+            android:inputType="numberDecimal|numberSigned"
+            android:maxLines="1" />
+
+        <Button
+            android:id="@+id/aplicarTemperaturaBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Aplicar temperatura" />
+
+        <Button
+            android:id="@+id/habilitarBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:enabled="false"
+            android:text="Habilitar equipo" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">Control energético</string>
     <string name="titulo_monitoreo">Monitoreo del equipo</string>
+    <!-- TODO: Reemplazar el aviso de simulación por el estado de conexión real. -->
     <string name="modo_simulado">Modo simulado · Sin conexión al ESP32</string>
     <string name="estado_simulado">Estado: DISPONIBLE</string>
     <string name="saldo_simulado">Saldo energético: 100 Wh</string>

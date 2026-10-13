@@ -14,12 +14,18 @@ import androidx.core.view.WindowInsetsCompat;
 
 import java.util.Locale;
 
-// Pantalla de monitoreo y recarga simulada, sin comunicación con el ESP32.
 public class MainActivity extends AppCompatActivity {
 
-    private enum Estado { DISPONIBLE, ACTIVO }
+    private enum Estado { DISPONIBLE, ACTIVO, ENFRIAMIENTO, DESHABILITADO }
 
+    // TODO: Reemplazar el estado y los valores iniciales simulados por datos del ESP32.
     private Estado estado = Estado.DISPONIBLE;
+    private double temperatura = 25;
+    private TextView temperaturaTxt;
+    // TODO: Quitar estos controles cuando la temperatura provenga del sensor real.
+    private EditText temperaturaInput;
+    private Button aplicarTemperaturaBtn;
+    private Button habilitarBtn;
     private TextView estadoTxt;
     private Button autorizarBtn;
     private Button finalizarBtn;
@@ -34,6 +40,12 @@ public class MainActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
 
+        temperaturaTxt = findViewById(R.id.tvTemperatura);
+        temperaturaInput = findViewById(R.id.temperaturaInput);
+        aplicarTemperaturaBtn = findViewById(R.id.aplicarTemperaturaBtn);
+        habilitarBtn = findViewById(R.id.habilitarBtn);
+        aplicarTemperaturaBtn.setOnClickListener(listener);
+        habilitarBtn.setOnClickListener(listener);
         estadoTxt = findViewById(R.id.tvEstado);
         autorizarBtn = findViewById(R.id.autorizarBtn);
         finalizarBtn = findViewById(R.id.finalizarBtn);
@@ -47,11 +59,11 @@ public class MainActivity extends AppCompatActivity {
         // Recuperar el saldo si Android recreó la pantalla, por ejemplo al girarla.
         if (savedInstanceState != null) {
             saldo = savedInstanceState.getDouble("saldo", 100);
-            if (savedInstanceState.getBoolean("usoActivo", false)) {
-                estado = Estado.ACTIVO;
-            }
+            temperatura = savedInstanceState.getDouble("temperatura", 25);
+            estado = Estado.valueOf(savedInstanceState.getString("estado", "DISPONIBLE"));
         }
         actualizarSaldo();
+        actualizarTemperatura();
         actualizarEstado();
 
         ajustarEspacioBarrasSistema();
@@ -60,25 +72,19 @@ public class MainActivity extends AppCompatActivity {
     private void ajustarEspacioBarrasSistema() {
         View pantallaPrincipal = findViewById(R.id.main);
 
-        ViewCompat.setOnApplyWindowInsetsListener(
-                pantallaPrincipal,
-                (vista, insets) -> {
-                    // Espacio ocupado por las barras del sistema.
-                    Insets barras = insets.getInsets(
-                            WindowInsetsCompat.Type.systemBars()
-                    );
+        ViewCompat.setOnApplyWindowInsetsListener(pantallaPrincipal, (vista, insets) -> {
+            Insets barras = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            Insets teclado = insets.getInsets(WindowInsetsCompat.Type.ime());
 
-                    // Separar el contenido de esas barras.
-                    vista.setPadding(
-                            barras.left,
-                            barras.top,
-                            barras.right,
-                            barras.bottom
-                    );
-
-                    return insets;
-                }
-        );
+            // Reservar espacio abajo para las barras o el teclado.
+            vista.setPadding(
+                    barras.left,
+                    barras.top,
+                    barras.right,
+                    Math.max(barras.bottom, teclado.bottom)
+            );
+            return insets;
+        });
     }
 
     // Se ejecuta cuando el usuario toca un botón asociado a este listener.
@@ -89,6 +95,10 @@ public class MainActivity extends AppCompatActivity {
             autorizarUso();
         } else if (v.getId() == R.id.finalizarBtn) {
             finalizarUso();
+        } else if (v.getId() == R.id.aplicarTemperaturaBtn) {
+            aplicarTemperatura();
+        } else if (v.getId() == R.id.habilitarBtn) {
+            habilitarEquipo();
         }
     };
 
@@ -117,6 +127,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+        // TODO: Enviar la recarga al ESP32 y actualizar el saldo con su confirmación.
         saldo += cantidad;
         actualizarSaldo();
         actualizarEstado();
@@ -124,24 +135,77 @@ public class MainActivity extends AppCompatActivity {
         recargaInput.setError(null);
     }
 
+    // TODO: Reemplazar las transiciones locales por comandos y estados confirmados por el ESP32.
     private void autorizarUso() {
         if (estado == Estado.DISPONIBLE && saldo > 0) {
             estado = Estado.ACTIVO;
+            evaluarTemperatura();
             actualizarEstado();
         }
     }
 
     private void finalizarUso() {
-        if (estado == Estado.ACTIVO) {
+        if (estado == Estado.ACTIVO || estado == Estado.ENFRIAMIENTO) {
             estado = Estado.DISPONIBLE;
             actualizarEstado();
         }
     }
 
+    // TODO: Quitar este método de entrada manual al recibir mediciones reales del sensor.
+    private void aplicarTemperatura() {
+        String texto = temperaturaInput.getText().toString().trim();
+        double valor;
+        try {
+            valor = Double.parseDouble(texto.replace(',', '.'));
+        } catch (NumberFormatException e) {
+            temperaturaInput.setError("Ingresá una temperatura válida");
+            return;
+        }
+        if (!Double.isFinite(valor)) {
+            temperaturaInput.setError("Ingresá una temperatura válida");
+            return;
+        }
+        temperatura = valor;
+        evaluarTemperatura();
+        actualizarTemperatura();
+        actualizarEstado();
+        temperaturaInput.setText("");
+        temperaturaInput.setError(null);
+    }
+
+    // TODO: Quitar esta lógica térmica local; la FSM real se ejecuta en el ESP32.
+    // En esta simulación evaluamos la temperatura al aplicarla y al autorizar uso.
+    private void evaluarTemperatura() {
+        if (estado == Estado.ACTIVO || estado == Estado.ENFRIAMIENTO) {
+            if (temperatura >= 75) {
+                estado = Estado.DESHABILITADO;
+            } else if (estado == Estado.ACTIVO && temperatura >= 50) {
+                estado = Estado.ENFRIAMIENTO;
+            } else if (estado == Estado.ENFRIAMIENTO && temperatura <= 30) {
+                estado = Estado.ACTIVO;
+            }
+        }
+    }
+
+    private void habilitarEquipo() {
+        // TODO: Condición solo de esta simulación: habilitar con temperatura <= 30 °C.
+        // El firmware actual permite habilitación manual sin comprobar la temperatura.
+        // Al conectar, enviar el comando y esperar la decisión del ESP32.
+        if (estado == Estado.DESHABILITADO && temperatura <= 30) {
+            estado = Estado.DISPONIBLE;
+            actualizarEstado();
+        }
+    }
+
+    private void actualizarTemperatura() {
+        temperaturaTxt.setText(String.format(Locale.getDefault(), "Temperatura: %.2f °C", temperatura));
+    }
+
     private void actualizarEstado() {
         estadoTxt.setText("Estado: " + estado.name());
         autorizarBtn.setEnabled(estado == Estado.DISPONIBLE && saldo > 0);
-        finalizarBtn.setEnabled(estado == Estado.ACTIVO);
+        finalizarBtn.setEnabled(estado == Estado.ACTIVO || estado == Estado.ENFRIAMIENTO);
+        habilitarBtn.setEnabled(estado == Estado.DESHABILITADO && temperatura <= 30);
     }
 
     private void actualizarSaldo() {
@@ -152,7 +216,9 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         outState.putDouble("saldo", saldo);
-        outState.putBoolean("usoActivo", estado == Estado.ACTIVO);
+        // TODO: Al conectar, volver a consultar el estado real en lugar de restaurar una simulación.
+        outState.putString("estado", estado.name());
+        outState.putDouble("temperatura", temperatura);
         super.onSaveInstanceState(outState);
     }
 }
