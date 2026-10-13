@@ -24,6 +24,8 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.eclipse.paho.client.mqttv3.MqttException;
+import org.json.JSONObject;
+import org.json.JSONException;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -46,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
                 String mensaje = intent.getStringExtra("mensaje");
                 if (MqttHandler.TOPIC_PRUEBA.equals(topic) && mensaje != null) {
                     ultimoMensajeTxt.setText("Último mensaje: " + mensaje);
+                    mostrarTemperaturaMqtt(mensaje);
                 }
             }
         }
@@ -160,6 +163,27 @@ public class MainActivity extends AppCompatActivity {
             simularConsumo();
         }
     };
+
+    private void mostrarTemperaturaMqtt(String mensaje) {
+        try {
+            JSONObject datos = new JSONObject(mensaje);
+            Object valor = datos.get("temperatura");
+            if (!(valor instanceof Number)) {
+                throw new JSONException("La temperatura debe ser un número");
+            }
+            double temperaturaRecibida = ((Number) valor).doubleValue();
+            if (!Double.isFinite(temperaturaRecibida)) {
+                throw new JSONException("La temperatura no es válida");
+            }
+
+            // Mostrar la medición sin modificar la temperatura usada por la FSM simulada.
+            temperaturaTxt.setText(String.format(Locale.getDefault(),
+                    "Temperatura MQTT: %.2f °C", temperaturaRecibida));
+        } catch (JSONException e) {
+            ultimoMensajeTxt.setText("Error MQTT: enviá un JSON con temperatura numérica");
+            Log.e("MQTT", "Mensaje de temperatura inválido", e);
+        }
+    }
 
     private void conectarMqtt() {
         conexionTxt.setText("MQTT: conectando…");
