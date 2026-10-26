@@ -1,0 +1,344 @@
+[
+  {
+    "id": "powershare",
+    "type": "tab",
+    "label": "PowerShare MQTT",
+    "disabled": false,
+    "info": "MyMQTT → validacion → ESP32 → confirmacion. Configuracion por variables de entorno."
+  },
+  {
+    "id": "broker",
+    "type": "mqtt-broker",
+    "name": "Mosquitto local",
+    "broker": "mosquitto",
+    "port": "1883",
+    "clientid": "powershare-nodered",
+    "autoConnect": true,
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "10",
+    "cleansession": true,
+    "autoUnsubscribe": true,
+    "birthTopic": "",
+    "closeTopic": "${MQTT_APP_STATUS}",
+    "closePayload": "offline",
+    "closeQos": "1",
+    "closeRetain": "true",
+    "willTopic": "${MQTT_APP_STATUS}",
+    "willPayload": "offline",
+    "willQos": "1",
+    "willRetain": "true",
+    "credentials": {
+      "user": "${MQTT_USER}",
+      "password": "${MQTT_PASSWORD}"
+    }
+  },
+  {
+    "id": "commands",
+    "type": "mqtt in",
+    "z": "powershare",
+    "name": "Comandos MyMQTT",
+    "topic": "${MQTT_APP_COMMANDS}",
+    "qos": "1",
+    "datatype": "utf8",
+    "broker": "broker",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "x": 160,
+    "y": 100,
+    "wires": [
+      [
+        "gateway"
+      ]
+    ]
+  },
+  {
+    "id": "device",
+    "type": "mqtt in",
+    "z": "powershare",
+    "name": "Datos ESP32",
+    "topic": "${MQTT_DEVICE_MESSAGES}",
+    "qos": "1",
+    "datatype": "utf8",
+    "broker": "broker",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "x": 150,
+    "y": 180,
+    "wires": [
+      [
+        "gateway"
+      ]
+    ]
+  },
+  {
+    "id": "connection",
+    "type": "status",
+    "z": "powershare",
+    "name": "Conexion al broker",
+    "scope": [
+      "commands"
+    ],
+    "x": 160,
+    "y": 260,
+    "wires": [
+      [
+        "gateway"
+      ]
+    ]
+  },
+  {
+    "id": "tick",
+    "type": "inject",
+    "z": "powershare",
+    "name": "Timeout de confirmaciones",
+    "props": [
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "topic": "__tick",
+    "repeat": "1",
+    "once": false,
+    "x": 170,
+    "y": 340,
+    "wires": [
+      [
+        "gateway"
+      ]
+    ]
+  },
+  {
+    "id": "gateway",
+    "type": "function",
+    "z": "powershare",
+    "name": "Validar, reenviar y confirmar",
+    "func": "// Cuatro salidas: ESP32, MyMQTT, registro JSONL y persistencia MySQL.\nconst prefix = env.get('MQTT_PREFIX') || 'powershare/esp32-01';\nconst now = Date.now();\nconst state = context.get('gateway') || {online: false, connected: false, lastTelemetry: 0, pending: Object.create(null)};\nconst out = [[], [], [], []];\nconst sendApp = (kind, payload, retain = false) => out[1].push({topic: `${prefix}/app/${kind}`, payload: typeof payload === 'string' ? payload : JSON.stringify(payload), qos: kind === 'telemetry' ? 0 : 1, retain});\nconst history = (kind, payload, topic = msg.topic || `${prefix}/app/status`) => out[3].push({payload: {receivedAt: new Date(now).toISOString(), kind, topic, payload}});\nconst log = (kind, payload) => { out[2].push({payload: JSON.stringify({receivedAt: new Date(now).toISOString(), kind, payload})}); history(kind, payload); };\nconst reject = (id, reason) => { const ack = {id, result: 'rejected', reason, source: 'nodered'}; sendApp('ack', ack); log('ack', ack); };\nconst text = Buffer.isBuffer(msg.payload) ? msg.payload.toString() : msg.payload;\nlet data = text;\nif (typeof text === 'string' && !['online', 'offline'].includes(text)) {\n    try { data = JSON.parse(text); } catch { data = null; }\n}\nif (msg.status) {\n    state.connected = msg.status.fill === 'green';\n    if (!state.connected) { state.online = false; state.lastTelemetry = 0; }\n} else if (msg.topic === '__tick') {\n    for (const [id, pending] of Object.entries(state.pending)) {\n        if (now - pending.sentAt >= 5000) {\n            const ack = {id, result: 'unknown', reason: 'ack_timeout', source: 'nodered'};\n            sendApp('ack', ack); log('ack', ack); delete state.pending[id];\n        }\n    }\n} else if (msg.topic === `${prefix}/app/commands`) {\n    history('command', data ?? {raw: text});\n    const id = data && typeof data.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(data.id) ? data.id : null;\n    const keys = data && typeof data === 'object' && !Array.isArray(data) ? Object.keys(data) : [];\n    if (msg.retain) reject(id, 'retained_command');\n    else if (!id || !data || typeof data.command !== 'string' || !['c', 'a', 'f', 'd', 'h'].includes(data.command) ||\n        keys.some(k => !['id', 'command', 'wh'].includes(k)) ||\n        (data.command === 'c' ? typeof data.wh !== 'number' || !Number.isFinite(data.wh) || data.wh <= 0 || data.wh > 3.402823466e38 : keys.includes('wh')) ||\n        Buffer.byteLength(typeof text === 'string' ? text : JSON.stringify(data)) > 256) reject(id, 'invalid_format');\n    else if (!state.connected || !state.online || now - state.lastTelemetry > 3000) reject(id, 'device_offline');\n    else {\n        const command = {id, command: data.command};\n        if (data.command === 'c') command.wh = data.wh;\n        const signature = JSON.stringify(command);\n        const previous = state.pending[id];\n        if (previous && previous.signature !== signature) reject(id, 'id_conflict');\n        else if (!previous && Object.keys(state.pending).length >= 32) reject(id, 'queue_full');\n        else if (!previous) {\n            state.pending[id] = {signature, sentAt: now};\n            out[0].push({topic: `${prefix}/device/commands`, payload: signature, qos: 1, retain: false});\n        }\n    }\n} else if (msg.topic && msg.topic.startsWith(`${prefix}/device/`)) {\n    const kind = msg.topic.slice(`${prefix}/device/`.length);\n    if (kind === 'status' && ['online', 'offline'].includes(text)) {\n        history('status', {status: text});\n        state.online = text === 'online';\n        if (!state.online) state.lastTelemetry = 0;\n    } else if (kind === 'telemetry' && !msg.retain && data &&\n        ['DISPONIBLE', 'ACTIVO', 'DESHABILITADO', 'ENFRIAMIENTO'].includes(data.state) &&\n        ['balanceWh', 'currentA', 'temperatureC', 'coolerPwm', 'uptimeMs'].every(k => typeof data[k] === 'number' && Number.isFinite(data[k])) &&\n        typeof data.loadOn === 'boolean' && typeof data.bootId === 'string') {\n        state.lastTelemetry = now;\n        sendApp(kind, data);\n        history(kind, data);\n    } else if (kind === 'ack' && !msg.retain && data && (data.id === null || typeof data.id === 'string') && ['applied', 'rejected'].includes(data.result)) {\n        delete state.pending[data.id]; sendApp(kind, data); log(kind, data);\n    } else if (kind === 'events' && !msg.retain && data && typeof data.event === 'string') {\n        sendApp(kind, data); log(kind, data);\n    } else if (kind === 'commands') history('command', data ?? {raw: text});\n    else log('invalid_device_message', {topic: msg.topic});\n}\n// Un online retained puede sobrevivir al reinicio del broker. Exigir datos frescos.\nconst available = state.connected && state.online && now - state.lastTelemetry <= 3000 ? 'online' : 'offline';\nif (state.reported !== available) { state.reported = available; sendApp('status', available, true); history('availability', {status: available}, `${prefix}/app/status`); }\ncontext.set('gateway', state);\nreturn out.map(messages => messages.length ? messages : null);\n",
+    "outputs": 4,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 460,
+    "y": 180,
+    "wires": [
+      [
+        "to-device"
+      ],
+      [
+        "to-app",
+        "debug"
+      ],
+      [
+        "events"
+      ],
+      [
+        "history-insert"
+      ]
+    ]
+  },
+  {
+    "id": "to-device",
+    "type": "mqtt out",
+    "z": "powershare",
+    "name": "Comando al ESP32",
+    "topic": "",
+    "qos": "",
+    "retain": "",
+    "broker": "broker",
+    "x": 750,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "to-app",
+    "type": "mqtt out",
+    "z": "powershare",
+    "name": "Datos hacia MyMQTT",
+    "topic": "",
+    "qos": "",
+    "retain": "",
+    "broker": "broker",
+    "x": 760,
+    "y": 180,
+    "wires": []
+  },
+  {
+    "id": "debug",
+    "type": "debug",
+    "z": "powershare",
+    "name": "Monitor PowerShare",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "x": 750,
+    "y": 240,
+    "wires": []
+  },
+  {
+    "id": "events",
+    "type": "file",
+    "z": "powershare",
+    "name": "Eventos y alertas JSONL",
+    "filename": "/data/events/powershare.jsonl",
+    "filenameType": "str",
+    "appendNewline": true,
+    "createDir": true,
+    "overwriteFile": "false",
+    "encoding": "utf8",
+    "x": 770,
+    "y": 320,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "mysql-db",
+    "type": "MySQLdatabase",
+    "name": "PowerShare MySQL",
+    "host": "${MYSQL_HOST}",
+    "port": "${MYSQL_PORT}",
+    "db": "${MYSQL_DATABASE}",
+    "tz": "Z",
+    "charset": "UTF8MB4",
+    "credentials": {
+      "user": "${MYSQL_USER}",
+      "password": "${MYSQL_PASSWORD}"
+    }
+  },
+  {
+    "id": "history-insert",
+    "type": "function",
+    "z": "powershare",
+    "name": "Preparar INSERT parametrizado",
+    "func": "// SQL fijo y valores separados: ningun dato MQTT se interpola en la consulta.\nconst record = msg.payload;\nif (!record || typeof record.kind !== 'string' || !record.receivedAt || !record.topic) {\n    node.error('Registro historico invalido', msg);\n    return null;\n}\nconst data = record.payload;\nconst commandId = data && typeof data.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(data.id) ? data.id : null;\nconst bootId = data && typeof data.bootId === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(data.bootId) ? data.bootId : null;\nmsg.topic = 'INSERT INTO iot_history (received_at, device_prefix, kind, source_topic, command_id, boot_id, payload) VALUES (?, ?, ?, ?, ?, ?, ?)';\nmsg.payload = [record.receivedAt.replace('T', ' ').replace('Z', ''), env.get('MQTT_PREFIX') || 'powershare/esp32-01', record.kind, record.topic, commandId, bootId, JSON.stringify(data)];\nreturn msg;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 740,
+    "y": 480,
+    "wires": [
+      [
+        "history-write"
+      ]
+    ]
+  },
+  {
+    "id": "history-write",
+    "type": "mysql",
+    "z": "powershare",
+    "name": "Guardar historial",
+    "mydb": "mysql-db",
+    "x": 1020,
+    "y": 480,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "history-trigger",
+    "type": "inject",
+    "z": "powershare",
+    "name": "Consultar ultimos 50 registros",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "payload": "",
+    "payloadType": "date",
+    "repeat": "",
+    "once": false,
+    "x": 180,
+    "y": 560,
+    "wires": [
+      [
+        "history-read"
+      ]
+    ]
+  },
+  {
+    "id": "history-read",
+    "type": "function",
+    "z": "powershare",
+    "name": "Consulta de historial",
+    "func": "// Consulta manual del editor: ultimos 50 registros del dispositivo configurado.\nmsg.topic = 'SELECT id, received_at, kind, source_topic, command_id, boot_id, payload FROM iot_history WHERE device_prefix = ? ORDER BY received_at DESC, id DESC LIMIT 50';\nmsg.payload = [env.get('MQTT_PREFIX') || 'powershare/esp32-01'];\nreturn msg;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 460,
+    "y": 560,
+    "wires": [
+      [
+        "history-query"
+      ]
+    ]
+  },
+  {
+    "id": "history-query",
+    "type": "mysql",
+    "z": "powershare",
+    "name": "Leer historial",
+    "mydb": "mysql-db",
+    "x": 720,
+    "y": 560,
+    "wires": [
+      [
+        "history-debug"
+      ]
+    ]
+  },
+  {
+    "id": "history-debug",
+    "type": "debug",
+    "z": "powershare",
+    "name": "Historial MySQL (50)",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "x": 1000,
+    "y": 560,
+    "wires": []
+  },
+  {
+    "id": "errors",
+    "type": "catch",
+    "z": "powershare",
+    "name": "Errores del flujo",
+    "scope": null,
+    "uncaught": false,
+    "x": 440,
+    "y": 400,
+    "wires": [
+      [
+        "errors-debug"
+      ]
+    ]
+  },
+  {
+    "id": "errors-debug",
+    "type": "debug",
+    "z": "powershare",
+    "name": "Errores PowerShare",
+    "active": true,
+    "tosidebar": true,
+    "console": true,
+    "tostatus": false,
+    "complete": "true",
+    "x": 760,
+    "y": 400,
+    "wires": []
+  }
+]

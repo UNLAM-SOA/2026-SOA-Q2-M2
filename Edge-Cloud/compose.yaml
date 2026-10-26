@@ -1,0 +1,80 @@
+name: powershare
+services:
+  init:
+    image: nodered/node-red:4.1.0
+    user: root
+    entrypoint: /bin/sh
+    command: ["-ec", "mkdir -p /data/events && if [ ! -f /data/.powershare-seeded ]; then cp /seed/flows.json /data/flows.json; cp /seed/flows_cred.json /data/flows_cred.json; touch /data/.powershare-seeded; fi && chown -R 1000:1000 /data"]
+    volumes:
+      - node_red_data:/data
+      - ./node-red:/seed:ro
+  mosquitto:
+    image: eclipse-mosquitto:2.0.22
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mkdir -p /tmp/powershare
+        cp /mosquitto/local/passwords /tmp/powershare/passwords
+        cp /mosquitto/local/acl /tmp/powershare/acl
+        chown -R mosquitto:mosquitto /tmp/powershare /mosquitto/data
+        chmod 600 /tmp/powershare/passwords /tmp/powershare/acl
+        exec /usr/sbin/mosquitto -c /mosquitto/config/mosquitto.conf
+    restart: unless-stopped
+    ports: ["1883:1883"]
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/local:/mosquitto/local:ro
+      - mosquitto_data:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+  nodered:
+    image: powershare-nodered:4.1.0-mysql
+    build: ./node-red
+    restart: unless-stopped
+    ports: ["127.0.0.1:1880:1880"]
+    environment:
+      MQTT_PREFIX: ${MQTT_PREFIX:-powershare/esp32-01}
+      MQTT_APP_COMMANDS: ${MQTT_PREFIX:-powershare/esp32-01}/app/commands
+      MQTT_DEVICE_MESSAGES: ${MQTT_PREFIX:-powershare/esp32-01}/device/+
+      MQTT_APP_STATUS: ${MQTT_PREFIX:-powershare/esp32-01}/app/status
+      MQTT_USER: nodered
+      MQTT_PASSWORD: ${NODERED_PASSWORD:?Ejecutar setup.ps1 primero}
+      NODE_RED_CREDENTIAL_SECRET: ${NODE_RED_CREDENTIAL_SECRET:?Ejecutar setup.ps1 primero}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: powershare
+      MYSQL_USER: powershare
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Ejecutar setup.ps1 primero}
+    volumes:
+      - node_red_data:/data
+      - ./node-red/settings.js:/data/settings.js:ro
+    depends_on:
+      init: {condition: service_completed_successfully}
+      mosquitto: {condition: service_healthy}
+      mysql: {condition: service_healthy}
+  mysql:
+    image: mysql:8.4.7
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Ejecutar setup.ps1 primero}
+      MYSQL_DATABASE: powershare
+      MYSQL_USER: powershare
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Ejecutar setup.ps1 primero}
+      TZ: UTC
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci", "--default-time-zone=+00:00"]
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/001-schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysql --protocol=TCP -h 127.0.0.1 -u\"$$MYSQL_USER\" -D\"$$MYSQL_DATABASE\" -Nse 'SELECT 1 FROM iot_history LIMIT 0'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+volumes:
+  mosquitto_data:
+  node_red_data:
+  mysql_data:
