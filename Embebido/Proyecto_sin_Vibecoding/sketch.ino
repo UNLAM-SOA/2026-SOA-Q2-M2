@@ -16,6 +16,7 @@ constexpr float TENSION_NOMINAL_CARGA_V = 12.0f, FACTOR_ACELERACION = 60.0f;
 constexpr float CORRIENTE_MINIMA_A = 0.2f;
 constexpr float SENS_MV_A = 185.0f, FACTOR_ADC_ACS = 10.0f, MV_MIN_SENSOR = 1000.0f;
 constexpr int MUESTRAS_ACS = 200;
+constexpr int MUESTRAS_PROMEDIO_CORRIENTE = 16;
 constexpr float I_COMP_RELE = 0.0f; // Reemplazar por el valor de "comp" del banco, si se midio.
 constexpr float TEMP_ALTA_C = 50.0f, TEMP_NORMAL_C = 30.0f, TEMP_CRITICA_C = 75.0f;
 constexpr float TEMP_SIMULADA_MIN_C = -40.0f, TEMP_SIMULADA_MAX_C = 125.0f;
@@ -261,11 +262,32 @@ float leerTemperatura() {
   return convertirTemperatura(sumaTemperatura / 16);
 }
 
+float leerCorriente() {
+  // Promedio movil entre ciclos: 16 mediciones abarcan unos 800 ms.
+  static float muestrasMv[MUESTRAS_PROMEDIO_CORRIENTE] = {};
+  static int siguiente = 0, cantidad = 0;
+  const float acsMv = leerAcsMv();
+  if (acsMv < MV_MIN_SENSOR) {
+    // Una lectura invalida no debe mantener corriente de muestras anteriores.
+    siguiente = 0;
+    cantidad = 0;
+    return 0.0f;
+  }
+
+  muestrasMv[siguiente] = acsMv;
+  siguiente = (siguiente + 1) % MUESTRAS_PROMEDIO_CORRIENTE;
+  if (cantidad < MUESTRAS_PROMEDIO_CORRIENTE) ++cantidad;
+  float sumaMv = 0.0f;
+  for (int i = 0; i < cantidad; ++i) sumaMv += muestrasMv[i];
+  const float promedioMv = sumaMv / cantidad;
+  const float compensacion = digitalRead(PIN_RELE_REFRIGERACION) == RELE_ACTIVO ? I_COMP_RELE : 0.0f;
+  // Promediar antes de limitar a cero evita sesgar el ruido hacia valores positivos.
+  return fmaxf(0.0f, (promedioMv - offsetMv) / SENS_MV_A - compensacion);
+}
+
 void leerSensores() {
   temperaturaC = leerTemperatura();
-  const float acsMv = leerAcsMv();
-  const float compensacion = digitalRead(PIN_RELE_REFRIGERACION) == RELE_ACTIVO ? I_COMP_RELE : 0.0f;
-  corrienteA = acsMv < MV_MIN_SENSOR ? 0.0f : fmaxf(0.0f, (acsMv - offsetMv) / SENS_MV_A - compensacion);
+  corrienteA = leerCorriente();
 }
 
 // Avisa una sola vez, cuando el saldo pasa de positivo a cero.

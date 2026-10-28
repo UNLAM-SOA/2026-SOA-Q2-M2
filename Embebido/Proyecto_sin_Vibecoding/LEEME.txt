@@ -40,7 +40,7 @@ La compilacion y la carga a la placa se realizan desde Arduino IDE.
 | GPIO | Funcion |
 |---|---|
 | 35 | Grove Temp v1.1: promedio de 16 lecturas, beta 4275 y formula del banco. |
-| 32 | ACS712 5 A: 200 muestras en mV, factor x10 y sensibilidad 185 mV/A. |
+| 32 | ACS712 5 A: 200 muestras en mV por ciclo, promedio movil de 16 ciclos, factor x10 y sensibilidad 185 mV/A. |
 | 21 / 22 | SDA / SCL del Grove-LCD RGB. |
 | 26 | Rele activo en HIGH: refrigeracion Creality, solo encendido/apagado. |
 | 27 | LED verde: acompana a la salida de carga. |
@@ -51,6 +51,13 @@ ACS712 como en el banco. Encender USB, 5 V y 12 V y luego pulsar EN para calibra
 con las alimentaciones presentes. Si Serial indica ACS ERROR, revisar la
 alimentacion y reiniciar. I_COMP_RELE queda en 0 A, igual al valor inicial del banco;
 si se midio la compensacion con "comp", colocar ese resultado en la constante.
+
+MUESTRAS_PROMEDIO_CORRIENTE controla el suavizado de corriente: 16 mediciones
+cubren unos 800 ms con el periodo de 50 ms de la FSM. Se promedian los mV antes
+de convertir a amperes y limitar a cero; al arrancar se usan solo las muestras
+disponibles. El promedio se usa en pantalla, telemetria y descuento de saldo,
+y tarda hasta una ventana en reflejar por completo un cambio de consumo.
+Una lectura menor que MV_MIN_SENSOR devuelve 0 A y reinicia el promedio.
 
 La tabla de estados original se conserva: DISPONIBLE y DESHABILITADO apagan ambas
 salidas; ACTIVO enciende la carga; ENFRIAMIENTO mantiene la carga y enciende el rele.

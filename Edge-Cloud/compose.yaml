@@ -57,6 +57,8 @@ services:
       mysql: {condition: service_healthy}
   mysql:
     image: mysql:8.4.7
+    ports:
+      - "127.0.0.1:3306:3306"
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Ejecutar setup.ps1 primero}
