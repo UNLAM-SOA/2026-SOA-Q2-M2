@@ -13,3 +13,6 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Conexión PowerShare local (valores incluidos en el APK)
+/mqtt.local.properties

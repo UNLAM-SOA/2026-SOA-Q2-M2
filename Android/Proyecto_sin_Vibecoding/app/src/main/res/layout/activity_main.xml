@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true"
-    tools:context=".MainActivity">
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -16,225 +15,190 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/titulo_monitoreo"
-            android:textSize="28sp"
+            android:text="@string/powershare"
+            android:textAppearance="?attr/textAppearanceHeadlineLarge"
             android:textStyle="bold" />
 
-        <TextView
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="@string/modo_simulado"
-            android:textSize="16sp" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/conexionTxt"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/sin_conexion"
+                android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+            <Button
+                android:id="@+id/conectarBtn"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/conectar" />
+
+            <Button
+                android:id="@+id/desconectarBtn"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/desconectar"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    android:id="@+id/disponibilidadTxt"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/estado_sin_datos"
+                    android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/energia_disponible"
+                    android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+                <TextView
+                    android:id="@+id/saldoTxt"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/saldo_sin_datos"
+                    android:textAppearance="?attr/textAppearanceHeadlineLarge"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/medicionesTxt"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/mediciones_sin_datos"
+                    android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+                <TextView
+                    android:id="@+id/vigenciaTxt"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/esperando_mediciones"
+                    android:textAppearance="?attr/textAppearanceBodySmall" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
         <TextView
-            android:id="@+id/conexionTxt"
+            android:id="@+id/alertaTxt"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="MQTT: desconectado"
-            android:textSize="16sp" />
+            android:layout_marginTop="12dp"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
+            android:textStyle="bold"
+            android:visibility="gone" />
 
-        <Button
-            android:id="@+id/conectarBtn"
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Conectar MQTT" />
+            android:layout_marginTop="20dp"
+            android:hint="@string/energia_a_recargar">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/creditoInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:importantForAutofill="no"
+                android:inputType="numberDecimal"
+                android:maxLines="1"
+                android:minHeight="48dp" />
+        </com.google.android.material.textfield.TextInputLayout>
 
         <Button
-            android:id="@+id/desconectarBtn"
+            android:id="@+id/recargarBtn"
+            style="?attr/materialButtonOutlinedStyle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:enabled="false"
-            android:text="Desconectar MQTT" />
+            android:text="@string/recargar_energia" />
 
         <Button
             android:id="@+id/enviarAutorizacionBtn"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:enabled="false"
-            android:text="Enviar autorización MQTT" />
+            android:text="@string/iniciar_uso" />
+
+        <Button
+            android:id="@+id/enviarFinalizacionBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:text="@string/finalizar_uso"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/ayudaTxt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="?attr/textAppearanceBodyMedium" />
 
         <TextView
             android:id="@+id/comandoTxt"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Comandos: sin envíos"
-            android:textSize="16sp" />
-
-        <TextView
-            android:id="@+id/ultimoMensajeTxt"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Último mensaje: sin mensajes"
-            android:textSize="16sp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="Datos recibidos por MQTT"
-            android:textStyle="bold"
-            android:textSize="20sp" />
-
-        <TextView
-            android:id="@+id/estadoMqttTxt"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Estado MQTT: sin datos"
-            android:textSize="18sp" />
-
-        <TextView
-            android:id="@+id/temperaturaMqttTxt"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Temperatura MQTT: sin datos"
-            android:textSize="18sp" />
-
-        <TextView
-            android:id="@+id/saldoMqttTxt"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Saldo MQTT: sin datos"
-            android:textSize="18sp" />
-
-        <TextView
-            android:id="@+id/corrienteMqttTxt"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Corriente MQTT: sin datos"
-            android:textSize="18sp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="Simulación local"
-            android:textStyle="bold"
-            android:textSize="20sp" />
-
-        <TextView
-            android:id="@+id/tvEstado"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/estado_simulado"
-            android:textSize="20sp" />
-
-        <TextView
-            android:id="@+id/tvSaldo"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/saldo_simulado"
-            android:textSize="20sp" />
-
-        <TextView
-            android:id="@+id/tvCorriente"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/corriente_simulada"
-            android:textSize="20sp" />
-
-        <TextView
-            android:id="@+id/tvTemperatura"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="@string/temperatura_simulada"
-            android:textSize="20sp" />
-
-        <EditText
-            android:id="@+id/recargaInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:minHeight="48dp"
-            android:hint="Cantidad a recargar (Wh)"
-            android:inputType="numberDecimal"
-            android:maxLines="1" />
+            android:layout_marginTop="12dp"
+            android:accessibilityLiveRegion="polite"
+            android:textAppearance="?attr/textAppearanceBodyLarge"
+            android:visibility="gone" />
 
         <Button
-            android:id="@+id/recargarBtn"
+            android:id="@+id/revisarBtn"
+            style="?attr/materialButtonOutlinedStyle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Recargar" />
+            android:text="@string/revisar_operacion"
+            android:visibility="gone" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/administracion"
+            android:textAppearance="?attr/textAppearanceTitleMedium" />
 
         <Button
-            android:id="@+id/autorizarBtn"
+            android:id="@+id/deshabilitarBtn"
+            style="?attr/materialButtonOutlinedStyle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Autorizar uso" />
-
-        <Button
-            android:id="@+id/finalizarBtn"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
             android:enabled="false"
-            android:text="Finalizar uso" />
-
-        <!-- TODO: Quitar estos controles; se usan solo para probar consumo y saldo agotado. -->
-        <EditText
-            android:id="@+id/consumoInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:minHeight="48dp"
-            android:hint="Consumo simulado (Wh)"
-            android:inputType="numberDecimal"
-            android:enabled="false"
-            android:maxLines="1" />
-
-        <Button
-            android:id="@+id/simularConsumoBtn"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:enabled="false"
-            android:text="Simular consumo" />
-
-        <!-- TODO: Quitar el campo y botón de temperatura cuando se use el sensor del ESP32. -->
-        <EditText
-            android:id="@+id/temperaturaInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:minHeight="48dp"
-            android:hint="Temperatura simulada (°C)"
-            android:inputType="numberDecimal|numberSigned"
-            android:maxLines="1" />
-
-        <Button
-            android:id="@+id/aplicarTemperaturaBtn"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Aplicar temperatura" />
+            android:text="@string/deshabilitar_equipo" />
 
         <Button
             android:id="@+id/habilitarBtn"
+            style="?attr/materialButtonOutlinedStyle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
             android:enabled="false"
-            android:text="Habilitar equipo" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="32dp"
-            android:text="@string/aclaracion_simulacion"
-            android:textSize="16sp" />
+            android:text="@string/habilitar_equipo"
+            android:visibility="gone" />
 
     </LinearLayout>
 </ScrollView>

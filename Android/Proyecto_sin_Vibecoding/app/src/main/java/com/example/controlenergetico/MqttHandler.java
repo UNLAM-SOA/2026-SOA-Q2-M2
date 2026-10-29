@@ -1,106 +1,74 @@
 package com.example.controlenergetico;
 
-import android.content.Context;
-import android.content.Intent;
-
-import java.nio.charset.StandardCharsets;
-
-import org.eclipse.paho.client.mqttv3.MqttClient;
-import org.eclipse.paho.client.mqttv3.MqttCallback;
-import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
+import org.eclipse.paho.client.mqttv3.MqttCallback;
+import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
+import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 
-public class MqttHandler implements MqttCallback {
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
-    public static final String ACTION_CONNECTION_LOST =
-            "com.example.controlenergetico.ACTION_CONNECTION_LOST";
-
-    public static final String ACTION_DATA_RECEIVE =
-            "com.example.controlenergetico.ACTION_DATA_RECEIVE";
-    public static final String TOPIC_PRUEBA = "soa/2026/q2/m2/equipo1/prueba";
-
-    public static final String TOPIC_COMANDOS = "soa/2026/q2/m2/equipo1/comandos";
-
-    private static final String BROKER_URL = "tcp://broker.emqx.io:1883";
-    private final String clientId = MqttClient.generateClientId();
+/** Transporte bloqueante: se usa exclusivamente desde el ejecutor de red del repositorio. */
+public final class MqttHandler {
+    public interface Listener {
+        void brokerConnected();
+        void subscribed();
+        void lost();
+        void message(String topic, String payload);
+    }
+    private final Listener listener;
     private MqttClient client;
-    private final Context context;
+    public MqttHandler(Listener listener) { this.listener = listener; }
 
-    public MqttHandler(Context context) {
-        this.context = context.getApplicationContext();
-    }
-
-    // Ejecutar desde un hilo secundario: la conexión puede tardar.
     public void connect() throws MqttException {
-        if (isConnected()) {
-            return;
-        }
-
-        if (client == null) {
-            client = new MqttClient(BROKER_URL, clientId, new MemoryPersistence());
-            client.setCallback(this);
-            client.setTimeToWait(10000);
-        }
-
+        // La nueva sesión descarta publicaciones pendientes de conexiones anteriores.
+        client = new MqttClient("tcp://" + BuildConfig.MQTT_HOST + ":" + BuildConfig.MQTT_PORT,
+                "android-" + UUID.randomUUID(), new MemoryPersistence());
+        client.setTimeToWait(10000);
+        client.setCallback(new MqttCallback() {
+            @Override public void connectionLost(Throwable cause) { listener.lost(); }
+            @Override public void messageArrived(String topic, MqttMessage message) {
+                listener.message(topic, new String(message.getPayload(), StandardCharsets.UTF_8));
+            }
+            @Override public void deliveryComplete(IMqttDeliveryToken token) {
+                // PUBACK MQTT no es un resultado funcional de PowerShare.
+            }
+        });
         MqttConnectOptions options = new MqttConnectOptions();
+        options.setMqttVersion(MqttConnectOptions.MQTT_VERSION_3_1_1);
         options.setCleanSession(true);
+        options.setAutomaticReconnect(false);
         options.setConnectionTimeout(10);
+        if (!BuildConfig.MQTT_USERNAME.trim().isEmpty()) {
+            options.setUserName(BuildConfig.MQTT_USERNAME);
+            options.setPassword(BuildConfig.MQTT_PASSWORD.toCharArray());
+        }
         client.connect(options);
+        listener.brokerConnected();
+        client.subscribe(BuildConfig.MQTT_PREFIX + "/app/#", 1);
+        listener.subscribed();
     }
-
-    public void subscribe(String topic) throws MqttException {
-        client.subscribe(topic, 0);
-    }
-
-    public void publish(String topic, String mensaje) throws MqttException {
-        if (!isConnected()) {
+    public void publish(String payload) throws MqttException {
+        if (client == null || !client.isConnected()) {
             throw new MqttException(MqttException.REASON_CODE_CLIENT_NOT_CONNECTED);
         }
-        MqttMessage mqttMessage = new MqttMessage(mensaje.getBytes(StandardCharsets.UTF_8));
-        mqttMessage.setQos(1);
-        // No guardar comandos para entregarlos a futuros suscriptores.
-        mqttMessage.setRetained(false);
-        client.publish(topic, mqttMessage);
+        PowerShareProtocol.checkSize(payload);
+        MqttMessage message = new MqttMessage(payload.getBytes(StandardCharsets.UTF_8));
+        message.setQos(1); message.setRetained(false);
+        client.publish(BuildConfig.MQTT_PREFIX + "/app/commands", message);
     }
-
-    // Ejecutar también desde el hilo secundario.
-    public void disconnect() throws MqttException {
-        if (client == null) {
-            return;
+    public void disconnect() {
+        if (client == null) return;
+        try {
+            // No enviar mensajes pendientes durante el cierre ni al reconectar.
+            client.disconnectForcibly(0, 1000, false);
+        } catch (MqttException ignored) {
+            // La conexión puede haberse perdido antes del cierre manual.
         }
-        if (client.isConnected()) {
-            client.disconnect(1000);
-        }
-        client.close();
+        try { client.close(true); } catch (MqttException ignored) { /* Ya cerrado. */ }
         client = null;
-    }
-
-    @Override
-    public void connectionLost(Throwable cause) {
-        // Avisar a la Activity mediante un broadcast, como en el ejemplo de la cátedra.
-        Intent intent = new Intent(ACTION_CONNECTION_LOST);
-        intent.setPackage(context.getPackageName());
-        context.sendBroadcast(intent);
-    }
-
-    @Override
-    public void messageArrived(String topic, MqttMessage message) {
-        // Paho recibe en otro hilo: enviar el dato a la Activity mediante un broadcast.
-        Intent intent = new Intent(ACTION_DATA_RECEIVE);
-        intent.setPackage(context.getPackageName());
-        intent.putExtra("topic", topic);
-        intent.putExtra("mensaje", message.toString());
-        context.sendBroadcast(intent);
-    }
-
-    @Override
-    public void deliveryComplete(IMqttDeliveryToken token) {
-    }
-
-    public boolean isConnected() {
-        return client != null && client.isConnected();
     }
 }
