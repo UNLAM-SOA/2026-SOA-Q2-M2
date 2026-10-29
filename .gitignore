@@ -30,3 +30,14 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# PowerShare: herramientas, secretos y artefactos locales
+.tools/
+.env
+config.local.h
+node_modules/
+*.bin
+*.elf
+*.map
+.arduino/
+Edge-Cloud/*-backup.sql
