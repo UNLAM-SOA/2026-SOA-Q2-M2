@@ -56,7 +56,7 @@ public final class PowerShareModel {
     }
     public void invalidate(long now) { freshnessFloor = now; eligibleTelemetry = false; }
     public void foreground(boolean value, long now) {
-        if (foreground != value) { foreground = value; invalidate(now); }
+        foreground = value;
     }
     public void connecting(long now) {
         connected = subscribed = online = false;
@@ -72,7 +72,7 @@ public final class PowerShareModel {
         return uncertain("connection_lost");
     }
     public boolean fresh(long now) {
-        return foreground && eligibleTelemetry && receivedAt >= 0 && now >= receivedAt
+        return eligibleTelemetry && receivedAt >= 0 && now >= receivedAt
                 && now - receivedAt <= FRESH_MS;
     }
     public boolean available(long now) { return connected && subscribed && online && fresh(now); }
@@ -83,7 +83,9 @@ public final class PowerShareModel {
             case AUTHORIZE: return telemetry.state == State.DISPONIBLE && telemetry.balanceWh > 0;
             case FINISH: return telemetry.state == State.ACTIVO || telemetry.state == State.ENFRIAMIENTO;
             case ENABLE: return telemetry.state == State.DESHABILITADO;
-            case DISABLE: return telemetry.state != State.DESHABILITADO;
+            case DISABLE:
+            case PWM_50:
+            case PWM_100: return telemetry.state != State.DESHABILITADO;
             default: return false;
         }
     }
@@ -94,7 +96,7 @@ public final class PowerShareModel {
                 || (pending != null && !pending.bootId.equals(next.bootId));
         boolean changed = reboot && uncertain("device_restarted");
         telemetry = next; receivedAt = arrival;
-        eligibleTelemetry = foreground && connected && subscribed && arrival > freshnessFloor;
+        eligibleTelemetry = connected && subscribed && arrival > freshnessFloor;
         return changed;
     }
     public Operation begin(Action action, BigDecimal wh, long now) throws JSONException {
@@ -176,8 +178,9 @@ public final class PowerShareModel {
             JSONObject cmd = new JSONObject(payload);
             BigDecimal wh = action == Action.RECHARGE ? new BigDecimal(cmd.get("wh").toString()) : null;
             command(id, action, wh); // Validar sin reconstruir ni alterar el payload guardado.
+            boolean threeKeys = action == Action.RECHARGE || action == Action.PWM_50 || action == Action.PWM_100;
             if (!id.equals(cmd.getString("id")) || !action.code.equals(cmd.getString("command"))
-                    || cmd.length() != (action == Action.RECHARGE ? 3 : 2)) {
+                    || cmd.length() != (threeKeys ? 3 : 2)) {
                 throw new IllegalArgumentException("Comando guardado inválido");
             }
             for (Operation existing : restored) if (existing.id.equals(id)) throw new IllegalArgumentException("ID duplicado");

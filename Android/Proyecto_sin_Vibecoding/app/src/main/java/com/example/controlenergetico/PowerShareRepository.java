@@ -25,6 +25,7 @@ public final class PowerShareRepository {
     private final AtomicFile journal;
     private MqttHandler transport;
     private int connectionEpoch;
+    private boolean keepConnected;
     public boolean connectionBusy;
 
     public PowerShareRepository(Context context) {
@@ -49,7 +50,14 @@ public final class PowerShareRepository {
     public long now() { return SystemClock.elapsedRealtime(); }
     public void observe(Observer observer) { observers.add(observer); observer.changed(); }
     public void remove(Observer observer) { observers.remove(observer); }
-    public void foreground(boolean value) { model.foreground(value, now()); notifyObservers(); }
+    public void foreground(boolean value) {
+        model.foreground(value, now());
+        if (value && keepConnected && !model.connected && !connectionBusy) {
+            connect();
+            return;
+        }
+        notifyObservers();
+    }
     private void notifyObservers() {
         for (Observer observer : new ArrayList<>(observers)) observer.changed();
     }
@@ -69,6 +77,7 @@ public final class PowerShareRepository {
         }
     }
     public void connect() {
+        keepConnected = true;
         if (connectionBusy || model.connected) return;
         connectionBusy = true;
         model.connecting(now());
@@ -89,6 +98,9 @@ public final class PowerShareRepository {
                     if (epoch != connectionEpoch) return;
                     if (model.disconnected(now())) persist();
                     connectionBusy = false; ++connectionEpoch; notifyObservers();
+                    if (keepConnected && model.foreground) {
+                        main.postDelayed(PowerShareRepository.this::connect, 1000);
+                    }
                 });
             }
             @Override public void message(String topic, String payload) {
@@ -113,6 +125,7 @@ public final class PowerShareRepository {
         });
     }
     public void disconnect() {
+        keepConnected = false;
         if (connectionBusy) return;
         ++connectionEpoch;
         if (model.disconnected(now())) persist();

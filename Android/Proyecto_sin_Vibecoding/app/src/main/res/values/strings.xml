@@ -17,4 +17,7 @@
     <string name="administracion">Administración</string>
     <string name="deshabilitar_equipo">Deshabilitar equipo</string>
     <string name="habilitar_equipo">Habilitar equipo</string>
+    <string name="escanear_qr">Escanear QR</string>
+    <string name="cargar_celular">Cargar celular (50%)</string>
+    <string name="cargar_computadora">Cargar computadora (100%)</string>
 </resources>

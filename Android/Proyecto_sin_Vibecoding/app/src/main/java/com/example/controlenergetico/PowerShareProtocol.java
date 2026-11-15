@@ -13,7 +13,8 @@ public final class PowerShareProtocol {
     public enum State { DISPONIBLE, ACTIVO, ENFRIAMIENTO, DESHABILITADO }
     public enum Action {
         RECHARGE("c", "Recargar"), AUTHORIZE("a", "Autorizar"), FINISH("f", "Finalizar"),
-        DISABLE("d", "Deshabilitar"), ENABLE("h", "Habilitar");
+        DISABLE("d", "Deshabilitar"), ENABLE("h", "Habilitar"),
+        PWM_50("p", "Cargar celular"), PWM_100("p", "Cargar computadora");
         public final String code;
         public final String label;
         Action(String code, String label) { this.code = code; this.label = label; }
@@ -36,7 +37,7 @@ public final class PowerShareProtocol {
             coolerPwm = integer(json, "coolerPwm", 255);
             uptimeMs = nonNegative(json, "uptimeMs");
             bootId = text(json, "bootId");
-            loadPwm = json.has("loadPwm") ? integer(json, "loadPwm", 255) : null;
+            loadPwm = json.has("loadPwm") ? integer(json, "loadPwm", 256) : null;
             loadPercent = json.has("loadPercent") ? integer(json, "loadPercent", 100) : null;
             temperatureSimulated = json.has("temperatureSimulated")
                     ? bool(json, "temperatureSimulated") : null;
@@ -101,6 +102,10 @@ public final class PowerShareProtocol {
             json.put("wh", wh.stripTrailingZeros());
         } else if (wh != null) {
             throw new IllegalArgumentException("wh solo se admite para recarga");
+        } else if (action == Action.PWM_50) {
+            json.put("percent", 50);
+        } else if (action == Action.PWM_100) {
+            json.put("percent", 100);
         }
         String payload = json.toString();
         checkSize(payload);

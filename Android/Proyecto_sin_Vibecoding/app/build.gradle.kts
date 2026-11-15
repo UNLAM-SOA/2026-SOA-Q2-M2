@@ -46,8 +46,9 @@ android {
 }
 
 dependencies {
-    // Cliente MQTT
+    // Cliente MQTT y lector QR
     implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation(libs.activity.ktx)
     implementation(libs.appcompat)
     implementation(libs.constraintlayout)

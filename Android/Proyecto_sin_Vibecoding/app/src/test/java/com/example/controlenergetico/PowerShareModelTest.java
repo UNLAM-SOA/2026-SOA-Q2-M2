@@ -55,16 +55,12 @@ public class PowerShareModelTest {
         assertSame(before, m.telemetry);
         assertFalse(m.fresh(3002));
     }
-    @Test public void reconnectAndReturnFromBackgroundRequireNewTelemetry() throws Exception {
+    @Test public void reconnectRequiresNewTelemetryWhileBackgroundKeepsData() throws Exception {
         PowerShareModel m = ready("DISPONIBLE", 10);
         m.foreground(false, 2);
         m.receiveTelemetry(sample("DISPONIBLE", 10, "boot-1"), 3);
         m.foreground(true, 4);
-        assertFalse(m.can(Action.RECHARGE, 4));
-        m.receiveTelemetry(sample("DISPONIBLE", 10, "boot-1"), 3); // Callback encolado antes de volver.
-        assertFalse(m.can(Action.RECHARGE, 4));
-        m.receiveTelemetry(sample("DISPONIBLE", 10, "boot-1"), 5);
-        assertTrue(m.can(Action.RECHARGE, 5));
+        assertTrue(m.can(Action.RECHARGE, 4));
         m.disconnected(6); m.connecting(7); m.brokerConnected(); m.online = true; m.subscriptionComplete(7);
         assertFalse(m.can(Action.RECHARGE, 7));
         m.receiveTelemetry(sample("DISPONIBLE", 10, "boot-1"), 8);

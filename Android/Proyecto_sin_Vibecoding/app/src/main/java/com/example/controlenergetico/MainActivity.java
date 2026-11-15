@@ -1,44 +1,69 @@
 package com.example.controlenergetico;
 
-import android.os.Bundle;
-import android.os.Build;
+import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.widget.Toast;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.text.InputType;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.core.content.ContextCompat;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import com.journeyapps.barcodescanner.ScanContract;
+import com.journeyapps.barcodescanner.ScanOptions;
+
+import java.math.BigDecimal;
 import java.text.DecimalFormat;
 import java.util.EnumMap;
 
 import static com.example.controlenergetico.PowerShareProtocol.*;
 
 /** Pantalla de control y monitoreo de PowerShare. */
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements SensorEventListener {
     private PowerShareRepository repository;
     private static final String LOCAL_NETWORK_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK";
     private final ActivityResultLauncher<String> networkPermission = registerForActivityResult(
             new ActivityResultContracts.RequestPermission(), granted -> {
                 if (granted) repository.connect();
-                else Toast.makeText(this, "Para conectar al equipo, permití el acceso a la red local y volvé a tocar Conectar.",
+                else Toast.makeText(this, "Para conectar al equipo, permití el acceso a la red local y volvé a escanear el QR.",
                         Toast.LENGTH_LONG).show();
+            });
+    private final ActivityResultLauncher<String> cameraPermission = registerForActivityResult(
+            new ActivityResultContracts.RequestPermission(), granted -> {
+                if (granted) launchQrScanner();
+                else Toast.makeText(this, "Necesitamos permiso de cámara para escanear el QR.",
+                        Toast.LENGTH_LONG).show();
+            });
+    private final ActivityResultLauncher<ScanOptions> qrLauncher = registerForActivityResult(
+            new ScanContract(), scanResult -> {
+                if (scanResult.getContents() != null) handleQrContent(scanResult.getContents());
             });
     private final EnumMap<Action, Button> actions = new EnumMap<>(Action.class);
     private EditText credit;
-    private Button connect, disconnect, review;
+    private Button disconnect, review, scanQr;
     private TextView connection, availability, freshness, balance, measurements, result, help, alert;
-    private String lastResult;
+    private SensorManager sensorManager;
+    private Sensor accelerometer;
+    private long lastShakeMs = 0;
+    private Action pendingPwmAction = null;
     private final PowerShareRepository.Observer observer = this::render;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -46,11 +71,9 @@ public class MainActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
         repository = ((PowerShareApplication) getApplication()).repository();
-        PowerShareModel.Operation latest = repository.model.lastUpdated();
-        lastResult = latest == null ? null : latest.id + ":" + latest.phase;
         credit = findViewById(R.id.creditoInput);
-        connect = findViewById(R.id.conectarBtn);
         disconnect = findViewById(R.id.desconectarBtn);
+        scanQr = findViewById(R.id.escanearQrBtn);
         review = findViewById(R.id.revisarBtn);
         connection = findViewById(R.id.conexionTxt);
         availability = findViewById(R.id.disponibilidadTxt);
@@ -65,9 +88,18 @@ public class MainActivity extends AppCompatActivity {
         bind(Action.FINISH, R.id.enviarFinalizacionBtn);
         bind(Action.DISABLE, R.id.deshabilitarBtn);
         bind(Action.ENABLE, R.id.habilitarBtn);
-        connect.setOnClickListener(v -> connectWithPermission());
+        bindPowerButton(Action.PWM_50, R.id.cargarCelularBtn);
+        bindPowerButton(Action.PWM_100, R.id.cargarComputadoraBtn);
         disconnect.setOnClickListener(v -> repository.disconnect());
+        scanQr.setOnClickListener(v -> scanQrWithPermission());
         review.setOnClickListener(v -> reviewUncertainty());
+        sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
+        if (sensorManager != null) {
+            accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        }
+        if (savedInstanceState == null) {
+            handleDeepLink(getIntent());
+        }
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (view, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             Insets keyboard = insets.getInsets(WindowInsetsCompat.Type.ime());
@@ -96,15 +128,118 @@ public class MainActivity extends AppCompatActivity {
             } catch (IllegalArgumentException e) { credit.setError(e.getMessage()); }
         });
     }
+    private void bindPowerButton(Action mode, int id) {
+        Button button = findViewById(id);
+        actions.put(mode, button);
+        button.setOnClickListener(v -> selectPowerProfile(mode));
+    }
+    private void selectPowerProfile(Action mode) {
+        Telemetry t = repository.model.telemetry;
+        if (t != null && t.state == State.DISPONIBLE && t.balanceWh <= 0) {
+            askRechargeBeforeMode(mode);
+        } else {
+            pendingPwmAction = null;
+            repository.send(mode, null);
+        }
+    }
+    private void askRechargeBeforeMode(Action mode) {
+        EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        input.setHint("Ej: 10");
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        input.setPadding(pad, pad / 2, pad, pad / 2);
+
+        String profile = mode == Action.PWM_50 ? "Celular (50%)" : "Computadora (100%)";
+        new AlertDialog.Builder(this)
+                .setTitle("Sin saldo para " + profile)
+                .setMessage("Ingresá cuántos Wh querés cargar antes de configurar este modo:")
+                .setView(input)
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Recargar", (dialog, which) -> {
+                    try {
+                        BigDecimal wh = recharge(input.getText().toString());
+                        pendingPwmAction = mode;
+                        repository.send(Action.RECHARGE, wh);
+                        if (repository.model.active() == null) pendingPwmAction = null;
+                    } catch (IllegalArgumentException e) {
+                        Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show();
+                    }
+                })
+                .show();
+    }
+    private void scanQrWithPermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+            cameraPermission.launch(Manifest.permission.CAMERA);
+        } else {
+            launchQrScanner();
+        }
+    }
+    private void launchQrScanner() {
+        ScanOptions options = new ScanOptions();
+        options.setPrompt("Escaneá el QR de la maqueta PowerShare");
+        options.setBeepEnabled(true);
+        options.setOrientationLocked(false);
+        qrLauncher.launch(options);
+    }
+    private void handleQrContent(String content) {
+        if (content != null && content.contains("powershare")) {
+            if (!repository.model.connected && !repository.connectionBusy) connectWithPermission();
+            Toast.makeText(this, "Equipo detectado por QR, conectando...", Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this, "El QR escaneado no corresponde a PowerShare.", Toast.LENGTH_LONG).show();
+        }
+    }
+    private void handleDeepLink(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return;
+        Uri data = intent.getData();
+        if (data != null && "powershare".equals(data.getScheme()) && "connect".equals(data.getHost())) {
+            if (!repository.model.connected && !repository.connectionBusy) connectWithPermission();
+        }
+    }
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleDeepLink(intent);
+    }
     @Override protected void onStart() {
         super.onStart();
         repository.foreground(true);
         repository.observe(observer);
     }
+    @Override protected void onResume() {
+        super.onResume();
+        if (sensorManager != null && accelerometer != null) {
+            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
+        }
+    }
+    @Override protected void onPause() {
+        super.onPause();
+        if (sensorManager != null) sensorManager.unregisterListener(this);
+    }
     @Override protected void onStop() {
         repository.remove(observer);
         if (!isChangingConfigurations()) repository.foreground(false);
         super.onStop();
+    }
+    @Override public void onSensorChanged(SensorEvent event) {
+        if (event.sensor.getType() != Sensor.TYPE_ACCELEROMETER) return;
+        float x = event.values[0];
+        float y = event.values[1];
+        float z = event.values[2];
+        double acceleration = Math.sqrt(x * x + y * y + z * z);
+
+        long nowMs = System.currentTimeMillis();
+        if (acceleration > 70.0 && nowMs - lastShakeMs > 1500) {
+            lastShakeMs = nowMs;
+            if (repository.model.can(Action.FINISH, repository.now())) {
+                repository.send(Action.FINISH, null);
+                Toast.makeText(this, "Shake detectado: finalizando uso", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+    @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {
+        // No se necesita manejo especial de precision para el acelerometro.
     }
     private String number(double value) {
         boolean scientific = value != 0 && (Math.abs(value) < 0.01 || Math.abs(value) >= 1000000);
@@ -126,6 +261,8 @@ public class MainActivity extends AppCompatActivity {
             case FINISH: return "Finalización de uso";
             case DISABLE: return "Deshabilitación del equipo";
             case ENABLE: return "Habilitación del equipo";
+            case PWM_50: return "Modo celular (50%)";
+            case PWM_100: return "Modo computadora (100%)";
             default: return action.label;
         }
     }
@@ -156,7 +293,7 @@ public class MainActivity extends AppCompatActivity {
     private String actionHelp(PowerShareModel model, long now) {
         if (!model.storageHealthy) return "No se pudo acceder al registro local. Las acciones están bloqueadas.";
         if (repository.connectionBusy) return "Esperá a que termine la conexión.";
-        if (!model.connected) return "Conectá la app para operar el equipo.";
+        if (!model.connected) return "Escaneá el QR del equipo para conectarte.";
         if (!model.available(now)) return "Esperando datos recientes del equipo para habilitar las acciones.";
         PowerShareModel.Operation pending = model.active();
         if (pending != null) return "";
@@ -181,9 +318,9 @@ public class MainActivity extends AppCompatActivity {
                 ? "No se pudo conectar" : "Sin conexión";
         else connectionLabel = model.available(now) ? "Conectado · equipo online" : "Conectado · esperando al equipo";
         show(connection, connectionLabel);
-        connect.setVisibility(model.connected ? View.GONE : View.VISIBLE);
+        scanQr.setVisibility(model.connected ? View.GONE : View.VISIBLE);
         disconnect.setVisibility(model.connected ? View.VISIBLE : View.GONE);
-        connect.setEnabled(!repository.connectionBusy);
+        scanQr.setEnabled(!repository.connectionBusy);
         disconnect.setEnabled(!repository.connectionBusy);
         for (Action action : Action.values()) actions.get(action).setEnabled(model.can(action, now));
 
@@ -197,8 +334,10 @@ public class MainActivity extends AppCompatActivity {
         if (t != null) {
             show(availability, stateName(t.state));
             show(balance, number(t.balanceWh) + " Wh");
+            int powerPercent = t.loadPercent != null ? t.loadPercent : 100;
             show(measurements, "Corriente: " + number(t.currentA) + " A\nTemperatura: " + number(t.temperatureC)
-                    + " °C\nCarga " + (t.loadOn ? "encendida" : "apagada"));
+                    + " °C\nCarga " + (t.loadOn ? "encendida" : "apagada")
+                    + "\nPotencia: " + powerPercent + " %");
         } else {
             availability.setText(R.string.estado_sin_datos);
             balance.setText(R.string.saldo_sin_datos);
@@ -213,13 +352,20 @@ public class MainActivity extends AppCompatActivity {
 
         PowerShareModel.Operation active = model.active();
         PowerShareModel.Operation latest = model.lastUpdated();
-        result.setVisibility(active == null ? View.GONE : View.VISIBLE);
-        if (active != null) show(result, operationText(active));
-        String resultKey = latest == null ? null : latest.id + ":" + latest.phase;
-        if (latest != null && latest.terminal() && !resultKey.equals(lastResult)) {
-            Toast.makeText(this, operationText(latest), Toast.LENGTH_LONG).show();
+        boolean uncertain = active != null && active.phase == PowerShareModel.Phase.UNCERTAIN;
+        result.setVisibility(uncertain ? View.VISIBLE : View.GONE);
+        if (uncertain) show(result, operationText(active));
+        if (pendingPwmAction != null && latest != null && latest.action == Action.RECHARGE) {
+            if (latest.phase == PowerShareModel.Phase.APPLIED && model.can(pendingPwmAction, now)) {
+                Action next = pendingPwmAction;
+                pendingPwmAction = null;
+                repository.send(next, null);
+                return;
+            } else if (latest.phase == PowerShareModel.Phase.REJECTED
+                    || latest.phase == PowerShareModel.Phase.UNCERTAIN) {
+                pendingPwmAction = null;
+            }
         }
-        lastResult = resultKey;
         review.setVisibility(active != null && active.phase == PowerShareModel.Phase.UNCERTAIN ? View.VISIBLE : View.GONE);
         review.setEnabled(model.canClose(now));
 

@@ -35,19 +35,19 @@
                 android:textAppearance="?attr/textAppearanceBodyMedium" />
 
             <Button
-                android:id="@+id/conectarBtn"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/conectar" />
-
-            <Button
                 android:id="@+id/desconectarBtn"
                 style="?attr/materialButtonOutlinedStyle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/desconectar"
                 android:visibility="gone" />
+
+            <Button
+                android:id="@+id/escanearQrBtn"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/escanear_qr" />
         </LinearLayout>
 
         <com.google.android.material.card.MaterialCardView
@@ -136,6 +136,33 @@
             android:layout_height="wrap_content"
             android:enabled="false"
             android:text="@string/recargar_energia" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/cargarCelularBtn"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:text="@string/cargar_celular" />
+
+            <Button
+                android:id="@+id/cargarComputadoraBtn"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:enabled="false"
+                android:text="@string/cargar_computadora" />
+        </LinearLayout>
 
         <Button
             android:id="@+id/enviarAutorizacionBtn"

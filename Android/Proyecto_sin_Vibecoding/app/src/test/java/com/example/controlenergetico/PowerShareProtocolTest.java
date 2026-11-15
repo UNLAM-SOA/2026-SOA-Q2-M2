@@ -22,11 +22,14 @@ public class PowerShareProtocolTest {
             assertEquals(id, json.getString("id"));
             assertEquals(36, id.length());
             assertEquals(action.code, json.getString("command"));
-            assertEquals(action == Action.RECHARGE ? 3 : 2, json.length());
+            boolean threeFields = action == Action.RECHARGE || action == Action.PWM_50 || action == Action.PWM_100;
+            assertEquals(threeFields ? 3 : 2, json.length());
             if (action == Action.RECHARGE) {
                 assertTrue(json.get("wh") instanceof Number);
                 assertEquals(10.25, json.getDouble("wh"), 0);
             } else assertFalse(json.has("wh"));
+            if (action == Action.PWM_50) assertEquals(50, json.getInt("percent"));
+            if (action == Action.PWM_100) assertEquals(100, json.getInt("percent"));
             assertTrue(payload.getBytes(StandardCharsets.UTF_8).length <= 256);
         }
     }
