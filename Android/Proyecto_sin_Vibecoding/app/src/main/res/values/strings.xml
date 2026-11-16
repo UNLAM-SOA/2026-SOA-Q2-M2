@@ -9,8 +9,7 @@
     <string name="saldo_sin_datos">— Wh</string>
     <string name="mediciones_sin_datos">Corriente: — A\nTemperatura: — °C</string>
     <string name="esperando_mediciones">Esperando mediciones del equipo</string>
-    <string name="energia_a_recargar">Energía a recargar (Wh)</string>
-    <string name="recargar_energia">Recargar energía</string>
+    <string name="recargar_energia">Cargar crédito</string>
     <string name="iniciar_uso">Iniciar uso</string>
     <string name="finalizar_uso">Finalizar uso</string>
     <string name="revisar_operacion">Revisar operación</string>

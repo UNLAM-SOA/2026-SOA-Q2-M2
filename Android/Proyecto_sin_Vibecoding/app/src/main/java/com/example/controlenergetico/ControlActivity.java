@@ -23,6 +23,7 @@ import androidx.core.view.WindowInsetsCompat;
 import com.google.android.material.materialswitch.MaterialSwitch;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.util.EnumMap;
 
@@ -38,9 +39,11 @@ public class ControlActivity extends AppCompatActivity implements SensorEventLis
     private static final long SHAKE_PEAK_GAP_MS = 100; // Ignora el rebote de un mismo golpe.
     private static final long SHAKE_COOLDOWN_MS = 1500;
     private static final String PREFERENCES = "powershare-ui", PREF_SHAKE = "shake_enabled";
+    // Valores de ejemplo para la estimación y el pago simulado; no son mediciones ni tarifas reales.
+    private static final int PHONE_WATTS = 10, COMPUTER_WATTS = 60;
+    private static final BigDecimal ARS_PER_WH = new BigDecimal("10");
     private PowerShareRepository repository;
     private final EnumMap<Action, Button> actions = new EnumMap<>(Action.class);
-    private EditText credit;
     private Button disconnect, review;
     private TextView connection, availability, freshness, balance, measurements, result, help, alert;
     private MaterialSwitch shakeSwitch;
@@ -58,7 +61,6 @@ public class ControlActivity extends AppCompatActivity implements SensorEventLis
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_control);
         repository = ((PowerShareApplication) getApplication()).repository();
-        credit = findViewById(R.id.creditoInput);
         disconnect = findViewById(R.id.desconectarBtn);
         review = findViewById(R.id.revisarBtn);
         connection = findViewById(R.id.conexionTxt);
@@ -121,11 +123,16 @@ public class ControlActivity extends AppCompatActivity implements SensorEventLis
         Button button = findViewById(id);
         actions.put(action, button);
         button.setOnClickListener(v -> {
-            try {
-                repository.send(action, action == Action.RECHARGE
-                        ? recharge(credit.getText().toString()) : null);
-                credit.setError(null);
-            } catch (IllegalArgumentException e) { credit.setError(e.getMessage()); }
+            if (action == Action.RECHARGE) {
+                new AlertDialog.Builder(this)
+                        .setTitle("¿Qué vas a usar?")
+                        .setItems(new String[]{"Celular", "Computadora"}, (dialog, which) ->
+                                askRecharge(which == 0 ? Action.PWM_50 : Action.PWM_100, false))
+                        .setNegativeButton("Cancelar", null)
+                        .show();
+            } else {
+                repository.send(action, null);
+            }
         });
     }
     private void bindPowerButton(Action mode, int id) {
@@ -136,36 +143,67 @@ public class ControlActivity extends AppCompatActivity implements SensorEventLis
     private void selectPowerProfile(Action mode) {
         Telemetry t = repository.model.telemetry;
         if (t != null && t.state == State.DISPONIBLE && t.balanceWh <= 0) {
-            askRechargeBeforeMode(mode);
+            askRecharge(mode, true);
         } else {
             pendingPwmAction = null;
             repository.send(mode, null);
         }
     }
-    private void askRechargeBeforeMode(Action mode) {
+    private void askRecharge(Action mode, boolean applyMode) {
         EditText input = new EditText(this);
-        input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        input.setHint("Ej: 10");
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setHint("Minutos de uso (1 a 1440)");
+        input.setText("60");
         int pad = (int) (20 * getResources().getDisplayMetrics().density);
         input.setPadding(pad, pad / 2, pad, pad / 2);
 
-        String profile = mode == Action.PWM_50 ? "Celular (50%)" : "Computadora (100%)";
-        new AlertDialog.Builder(this)
-                .setTitle("Sin saldo para " + profile)
-                .setMessage("Ingresá cuántos Wh querés cargar antes de configurar este modo:")
+        String device = mode == Action.PWM_50 ? "Celular" : "Computadora";
+        int watts = mode == Action.PWM_50 ? PHONE_WATTS : COMPUTER_WATTS;
+        AlertDialog durationDialog = new AlertDialog.Builder(this)
+                .setTitle("Recargar para " + device.toLowerCase(java.util.Locale.ROOT))
+                .setMessage((applyMode ? "Sin saldo. " : "")
+                        + "¿Cuántos minutos lo vas a usar? Estimamos un consumo de " + watts + " W.")
                 .setView(input)
                 .setNegativeButton("Cancelar", null)
-                .setPositiveButton("Recargar", (dialog, which) -> {
+                .setPositiveButton("Ver estimación", null)
+                .create();
+        durationDialog.setOnShowListener(dialog -> durationDialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    int minutes;
                     try {
-                        BigDecimal wh = recharge(input.getText().toString());
-                        pendingPwmAction = mode;
-                        repository.send(Action.RECHARGE, wh);
-                        if (repository.model.active() == null) pendingPwmAction = null;
-                    } catch (IllegalArgumentException e) {
-                        Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show();
+                        minutes = Integer.parseInt(input.getText().toString().trim());
+                        if (minutes < 1 || minutes > 1440) throw new NumberFormatException();
+                    } catch (NumberFormatException e) {
+                        input.setError("Ingresá minutos enteros entre 1 y 1440");
+                        return;
                     }
-                })
-                .show();
+                    // Wh = W × horas. Redondeamos hacia arriba a dos decimales.
+                    BigDecimal wh = BigDecimal.valueOf((long) watts * minutes)
+                            .divide(BigDecimal.valueOf(60), 2, RoundingMode.CEILING);
+                    BigDecimal price = wh.multiply(ARS_PER_WH);
+                    durationDialog.dismiss();
+                    new AlertDialog.Builder(this)
+                            .setTitle("Confirmar recarga")
+                            .setMessage(device + " durante " + minutes + " minutos"
+                                    + "\nEnergía sugerida: " + number(wh.doubleValue()) + " Wh"
+                                    + "\nTotal: ARS " + new DecimalFormat("0.00").format(price)
+                                    + "\n\nTarifa ficticia: ARS " + ARS_PER_WH + " por Wh."
+                                    + " Consumo estimado; puede variar según el dispositivo."
+                                    + "\nPago simulado: no se realiza ningún cobro.")
+                            .setNegativeButton("Cancelar", null)
+                            .setPositiveButton("Simular pago y recargar", (confirmation, which) -> {
+                                if (!repository.model.can(Action.RECHARGE, repository.now())) {
+                                    Toast.makeText(this, "Ahora no se puede recargar. Revisá el estado del equipo.",
+                                            Toast.LENGTH_LONG).show();
+                                    return;
+                                }
+                                pendingPwmAction = applyMode ? mode : null;
+                                repository.send(Action.RECHARGE, wh);
+                                if (repository.model.active() == null) pendingPwmAction = null;
+                            })
+                            .show();
+                }));
+        durationDialog.show();
     }
     @Override protected void onStart() {
         super.onStart();
