@@ -1,0 +1,10 @@
+{
+  "broker": {
+    "user": "${MQTT_USER}",
+    "password": "${MQTT_PASSWORD}"
+  },
+  "mysql-db": {
+    "user": "${MYSQL_USER}",
+    "password": "${MYSQL_PASSWORD}"
+  }
+}
