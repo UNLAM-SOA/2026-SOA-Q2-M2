@@ -63,14 +63,6 @@ topic read $Prefix/device/#
 topic write $Prefix/app/commands
 topic write $Prefix/device/commands
 "@ | Set-Content mosquitto/local/acl -Encoding ascii
-$firmware = Join-Path $PSScriptRoot '../Embebido/Proyecto_con_Vibecoding'
-# La entrega del stack funciona sola; generar la configuracion del simulador
-# unicamente cuando su plantilla esta presente en el checkout completo.
-if ((Test-Path "$firmware/config.example.h") -and -not (Test-Path "$firmware/config.local.h")) {
-    $config = Get-Content "$firmware/config.example.h" -Raw
-    $config = $config.Replace('CHANGE_ME_ESP32', $values.ESP32_PASSWORD).Replace('powershare/esp32-01', $Prefix)
-    [System.IO.File]::WriteAllText("$firmware/config.local.h", $config)
-}
 Write-Host 'Configuracion lista. Credenciales: Edge-Cloud/.env (no versionado). Ejecutar docker compose up -d.'
 
 } finally { Pop-Location }
