@@ -123,6 +123,15 @@ const char *NOMBRE_EVENTO[] = { "AUTORIZACION", "FINALIZAR_USO", "RECARGAR", "CR
   "ACTUALIZAR_DISPLAY", "CONTINUE", "AJUSTAR_PWM", "SIMULAR_TEMPERATURA", "USAR_SENSOR_TEMPERATURA" };
 // Abreviaturas para que entren en las 16 columnas del LCD.
 const char *NOMBRE_ESTADO_LCD[] = { "DISP", "ACT", "DESH", "ENFR" };
+// Color del backlight por estado, en el orden del enum Estado. Tonos claros y
+// brillantes: las letras del Grove LCD son oscuras y necesitan fondo luminoso.
+struct ColorLcd { byte rojo, verde, azul; };
+constexpr ColorLcd COLOR_ESTADO_LCD[] = {
+  { 0, 180, 255 },   // DISPONIBLE: celeste.
+  { 50, 255, 80 },   // ACTIVO: verde.
+  { 255, 70, 70 },   // DESHABILITADO: rojo claro / coral.
+  { 255, 200, 0 },   // ENFRIAMIENTO: ambar.
+};
 
 rgb_lcd lcd;
 QueueHandle_t colaEventos;
@@ -155,6 +164,12 @@ uint32_t ultimaTelemetria = 0;
 float convertirTemperatura(int lectura) {
   lectura = constrain(lectura, ADC_LECTURA_MINIMA_VALIDA, ADC_LECTURA_MAXIMA_VALIDA);
   return 1.0f / (log(ADC_MAXIMO / (float)lectura - 1.0f) / BETA_NTC + 1.0f / TEMPERATURA_REFERENCIA_NTC_K) - DIFERENCIA_KELVIN_CELSIUS;
+}
+
+// Solo cambia el backlight; se llama al arrancar y en cada cambio de estado.
+void aplicarColorEstado() {
+  const ColorLcd &color = COLOR_ESTADO_LCD[estadoActual];
+  lcd.setRGB(color.rojo, color.verde, color.azul);
 }
 
 void actualizarDisplay() {
@@ -222,6 +237,7 @@ void cambiarEstado(Estado nuevoEstado, Evento evento) {
   zonaAnterior = ZONA_DESCONOCIDA;  // Al entrar a un estado se vuelve a informar la temperatura actual.
 
   Serial.printf("[FSM] %s --%s--> %s\n", NOMBRE_ESTADO[estadoAnterior], NOMBRE_EVENTO[evento], NOMBRE_ESTADO[estadoActual]);
+  aplicarColorEstado();
   actualizarDisplay();
 }
 
@@ -730,7 +746,7 @@ void setup() {
 
   Wire.begin(21, 22);
   lcd.begin(LCD_COLUMNAS, LCD_FILAS);
-  lcd.setRGB(0, 80, 255);
+  aplicarColorEstado();
   actualizarDisplay();
 
   ultimaMedicionCreditoMs = millis();

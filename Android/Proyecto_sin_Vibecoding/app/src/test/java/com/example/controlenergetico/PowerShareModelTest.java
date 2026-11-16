@@ -69,9 +69,26 @@ public class PowerShareModelTest {
     @Test public void observingAgainDuringRotationDoesNotInvalidateDataOrPending() throws Exception {
         PowerShareModel m = ready("DISPONIBLE", 10);
         Operation op = m.begin(Action.RECHARGE, BigDecimal.TEN, 2);
-        m.foreground(true, 3); // onStart de la Activity recreada, sin salida real a segundo plano.
+        m.foreground(false, 3); // onStop de la Activity que se destruye por la rotación.
+        m.foreground(true, 3);  // onStart de la Activity recreada.
+        assertTrue(m.foreground);
         assertTrue(m.fresh(3)); assertSame(op, m.active());
         assertTrue(m.connected); assertTrue(m.subscribed);
+    }
+    @Test public void navigatingBetweenActivitiesKeepsForeground() {
+        PowerShareModel m = new PowerShareModel();
+        m.foreground(true, 0);  // onStart de la pantalla de inicio.
+        m.foreground(true, 1);  // onStart del panel: llega antes que el onStop del inicio.
+        m.foreground(false, 2); // onStop de la pantalla de inicio.
+        assertTrue(m.foreground);
+        m.foreground(true, 3);  // Atrás: onStart del inicio antes que el onStop del panel.
+        m.foreground(false, 4);
+        assertTrue(m.foreground);
+        m.foreground(false, 5); // La app pasa a segundo plano.
+        assertFalse(m.foreground);
+        m.foreground(false, 6); // Un onStop de más no deja el contador en negativo.
+        m.foreground(true, 7);
+        assertTrue(m.foreground);
     }
     @Test public void onePendingAndSendingNeverChangesDeviceSnapshot() throws Exception {
         PowerShareModel m = ready("DISPONIBLE", 10);

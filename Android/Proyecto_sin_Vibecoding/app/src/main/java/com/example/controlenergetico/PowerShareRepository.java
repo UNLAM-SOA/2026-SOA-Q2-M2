@@ -50,6 +50,7 @@ public final class PowerShareRepository {
     public long now() { return SystemClock.elapsedRealtime(); }
     public void observe(Observer observer) { observers.add(observer); observer.changed(); }
     public void remove(Observer observer) { observers.remove(observer); }
+    /** Llamar desde onStart (true) y onStop (false) de cada Activity; el modelo cuenta las iniciadas. */
     public void foreground(boolean value) {
         model.foreground(value, now());
         if (value && keepConnected && !model.connected && !connectionBusy) {
@@ -57,6 +58,17 @@ public final class PowerShareRepository {
             return;
         }
         notifyObservers();
+    }
+    /** Verdadero desde connect() hasta que el usuario pide desconectar, aunque haya un microcorte. */
+    public boolean wantsConnection() { return keepConnected; }
+    /** El último intento de conexión terminó con error y no hay otro en curso. */
+    public boolean connectionFailed() {
+        return !connectionBusy && !model.connected && model.connectionText.contains("error");
+    }
+    public String connectionLabel() {
+        if (connectionBusy) return model.connectionText.equals("Broker: desconectado") ? "Desconectando…" : "Conectando…";
+        if (!model.connected) return connectionFailed() ? "No se pudo conectar" : "Sin conexión";
+        return model.available(now()) ? "Conectado · equipo online" : "Conectado · esperando al equipo";
     }
     private void notifyObservers() {
         for (Observer observer : new ArrayList<>(observers)) observer.changed();

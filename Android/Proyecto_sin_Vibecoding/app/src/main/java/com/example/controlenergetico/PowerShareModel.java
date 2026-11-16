@@ -42,6 +42,7 @@ public final class PowerShareModel {
     public String lastEvent = "Sin eventos";
     private long receivedAt = -1, freshnessFloor = -1;
     private boolean eligibleTelemetry;
+    private int startedActivities;
     private final List<Operation> operations = new ArrayList<>();
     private String lastUpdatedId;
 
@@ -55,8 +56,14 @@ public final class PowerShareModel {
         return operations.isEmpty() ? null : operations.get(operations.size() - 1);
     }
     public void invalidate(long now) { freshnessFloor = now; eligibleTelemetry = false; }
+    /**
+     * Cada Activity avisa en onStart (true) y en onStop (false). Se cuentan las iniciadas porque,
+     * al navegar, el onStart de la pantalla nueva llega antes que el onStop de la anterior:
+     * con un booleano simple la app quedaría marcada en segundo plano estando visible.
+     */
     public void foreground(boolean value, long now) {
-        foreground = value;
+        startedActivities = Math.max(0, startedActivities + (value ? 1 : -1));
+        foreground = startedActivities > 0;
     }
     public void connecting(long now) {
         connected = subscribed = online = false;

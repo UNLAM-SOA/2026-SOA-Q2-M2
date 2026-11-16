@@ -65,6 +65,20 @@ Se entra a enfriamiento a 50 C y se vuelve a ACTIVO a 30 C. A 75 C se pasa a
 DESHABILITADO, que tambien apaga la refrigeracion, como hacia el sketch original.
 Las salidas de las transiciones se aplican en CONTINUE, como antes.
 
+El backlight del Grove-LCD RGB indica el estado de la FSM. Se actualiza al
+arrancar y en cada cambio de estado (cambiarEstado), sin modificar transiciones
+ni actuadores. Se usan tonos claros porque las letras del display son oscuras:
+
+| Estado | Color (R, G, B) |
+|---|---|
+| DISPONIBLE | Celeste (0, 180, 255) |
+| ACTIVO | Verde (50, 255, 80) |
+| ENFRIAMIENTO | Ambar (255, 200, 0) |
+| DESHABILITADO | Rojo claro / coral (255, 70, 70) |
+
+Los valores estan en COLOR_ESTADO_LCD; si en el display fisico las letras se
+leen mal con el rojo, subir verde y azul, por ejemplo (255, 90, 90).
+
 El saldo inicial es 0 Wh y se pierde al reiniciar. Se descuenta en ACTIVO y
 ENFRIAMIENTO: 12 V x corriente x horas reales x 60. Se conserva el factor x60
 para la demostracion; cambiar FACTOR_ACELERACION a 1 para tiempo real.
