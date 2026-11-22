@@ -9,31 +9,56 @@
 #include <ArduinoJson.h>
 #include "config.local.h"
 
+// ******************** Pines y Hardware ********************//
 // Delta (carga) por BC337; Creality (refrigeracion) por rele activo en alto.
 constexpr byte PIN_PWM_CARGA = 25, PIN_RELE_REFRIGERACION = 26, PIN_LED_CARGA = 27;
 constexpr byte PIN_CORRIENTE = 32, PIN_TEMPERATURA = 35;
-constexpr float TENSION_NOMINAL_CARGA_V = 12.0f, FACTOR_ACELERACION = 60.0f;
-constexpr float CORRIENTE_MINIMA_A = 0.2f;
-constexpr float SENS_MV_A = 185.0f, FACTOR_ADC_ACS = 10.0f, MV_MIN_SENSOR = 1000.0f;
+constexpr byte RELE_ACTIVO = HIGH, RELE_INACTIVO = LOW; // Igual al Rele fisico
+
+// ******************** ADC ********************//
+// Evitamos valores que rompan la formula cuando el sensor de temperatura se encuentre con algun defecto o problema fisico
+constexpr int ADC_MAXIMO = 4095;
+constexpr int ADC_LECTURA_MINIMA_VALIDA = 1, ADC_LECTURA_MAXIMA_VALIDA = ADC_MAXIMO - 1;
+
+// ******************** Sensor de corriente (ACS712) ********************//
+constexpr float SENS_MV_A = 185.0f, FACTOR_ADC_ACS = 15.0f, MV_MIN_SENSOR = 1000.0f;
 constexpr int MUESTRAS_ACS = 200;
 constexpr int MUESTRAS_PROMEDIO_CORRIENTE = 16;
 constexpr float I_COMP_RELE = 0.0f; // Reemplazar por el valor de "comp" del banco, si se midio.
+
+// ******************** Sensor de temperatura (NTC) ********************//
+constexpr float BETA_NTC = 4275.0f, TEMPERATURA_REFERENCIA_NTC_K = 298.15f; // Grove Temp v1.1.
+constexpr float DIFERENCIA_KELVIN_CELSIUS = 273.15f;
+
+// ******************** Umbrales de temperatura ********************//
 constexpr float TEMP_ALTA_C = 50.0f, TEMP_NORMAL_C = 30.0f, TEMP_CRITICA_C = 75.0f;
 constexpr float TEMP_SIMULADA_MIN_C = -40.0f, TEMP_SIMULADA_MAX_C = 125.0f;
+
+// ******************** Consumo y credito ********************//
+constexpr float TENSION_NOMINAL_CARGA_V = 12.0f, FACTOR_ACELERACION = 60.0f;
+constexpr float CORRIENTE_MINIMA_A = 0.2f; // Tambien define el uso minimo para el timeout.
+constexpr float MILISEGUNDOS_POR_HORA = 3600000.0f;
+
+// ******************** PWM de la carga ********************//
 constexpr byte RESOLUCION_PWM_CARGA_BITS = 8;
 constexpr uint32_t FRECUENCIA_PWM_CARGA_HZ = 5000;
 constexpr int POTENCIA_CARGA_APAGADA = 0, POTENCIA_CARGA_MAXIMA = 255;
-constexpr unsigned long PERIODO_FSM_MS = 50, PERIODO_DISPLAY_MS = 500, TIMEOUT_SIN_USO_MS = 10000, PERIODO_SERIAL_MS = 20;
-constexpr float MILISEGUNDOS_POR_HORA = 3600000.0f;
-constexpr unsigned long VELOCIDAD_SERIAL_BPS = 115200;
-constexpr int ADC_MAXIMO = 4095;
-constexpr int ADC_LECTURA_MINIMA_VALIDA = 1, ADC_LECTURA_MAXIMA_VALIDA = ADC_MAXIMO - 1;
-constexpr float BETA_NTC = 4275.0f, TEMPERATURA_REFERENCIA_NTC_K = 298.15f; // Grove Temp v1.1.
-constexpr float DIFERENCIA_KELVIN_CELSIUS = 273.15f;
-constexpr byte RELE_ACTIVO = HIGH, RELE_INACTIVO = LOW; // Igual al banco de pruebas fisico.
-constexpr byte LCD_COLUMNAS = 16, LCD_FILAS = 2, LARGO_COLA_EVENTOS = 8;
+
+// ******************** Temporizacion ********************//
+constexpr unsigned long PERIODO_FSM_MS = 50, PERIODO_DISPLAY_MS = 500, PERIODO_SERIAL_MS = 20;
+constexpr unsigned long TIMEOUT_SIN_USO_MS = 10000;
+
+// ******************** LCD ********************//
+constexpr byte LCD_COLUMNAS = 16, LCD_FILAS = 2;
 constexpr byte LCD_COLUMNA_INICIAL = 0, LCD_FILA_ESTADO = 0, LCD_FILA_MEDICIONES = 1;
-constexpr size_t TAMANO_BUFFER_LCD = LCD_COLUMNAS + 1, TAMANO_BUFFER_COMANDO = 48;
+constexpr size_t TAMANO_BUFFER_LCD = LCD_COLUMNAS + 1;
+
+// ******************** Serial ********************//
+constexpr unsigned long VELOCIDAD_SERIAL_BPS = 115200;
+constexpr size_t TAMANO_BUFFER_COMANDO = 48;
+
+// ******************** FreeRTOS: colas y tareas ********************//
+constexpr byte LARGO_COLA_EVENTOS = 8;
 constexpr TickType_t ESPERA_COLA_SIN_BLOQUEO_TICKS = 0;
 constexpr uint32_t TAMANO_PILA_TAREA_SERIAL = 3072, TAMANO_PILA_TAREA_FSM = 4096;
 constexpr UBaseType_t PRIORIDAD_TAREA_SERIAL = 1, PRIORIDAD_TAREA_FSM = 2;
