@@ -13,10 +13,12 @@
 // Delta (carga) por BC337; Creality (refrigeracion) por rele activo en alto.
 constexpr byte PIN_PWM_CARGA = 25, PIN_RELE_REFRIGERACION = 26, PIN_LED_CARGA = 27;
 constexpr byte PIN_CORRIENTE = 32, PIN_TEMPERATURA = 35;
+constexpr byte PIN_SDA_LCD = 21, PIN_SCL_LCD = 22; // Bus I2C del LCD Grove.
 constexpr byte RELE_ACTIVO = HIGH, RELE_INACTIVO = LOW; // Igual al Rele fisico
 
 // ******************** ADC ********************//
-// Evitamos valores que rompan la formula cuando el sensor de temperatura se encuentre con algun defecto o problema fisico
+// Evitamos valores (0 y 4095) que rompian la formula cuando el sensor de temperatura se encuentre con algun defecto o problema fisico
+constexpr byte RESOLUCION_ADC_BITS = 12; // 12 bits: lecturas de 0 a 4095.
 constexpr int ADC_MAXIMO = 4095;
 constexpr int ADC_LECTURA_MINIMA_VALIDA = 1, ADC_LECTURA_MAXIMA_VALIDA = ADC_MAXIMO - 1;
 
@@ -25,10 +27,13 @@ constexpr float SENS_MV_A = 185.0f, FACTOR_ADC_ACS = 15.0f, MV_MIN_SENSOR = 1000
 constexpr int MUESTRAS_ACS = 200;
 constexpr int MUESTRAS_PROMEDIO_CORRIENTE = 16;
 constexpr float I_COMP_RELE = 0.0f; // Reemplazar por el valor de "comp" del banco, si se midio.
+constexpr unsigned long ESPERA_CALIBRACION_MS = 1500; // Tiempo para que el sensor se estabilice antes de calibrar.
+constexpr int MUESTRAS_CALIBRACION = 10;
 
 // ******************** Sensor de temperatura (NTC) ********************//
 constexpr float BETA_NTC = 4275.0f, TEMPERATURA_REFERENCIA_NTC_K = 298.15f; // Grove Temp v1.1.
 constexpr float DIFERENCIA_KELVIN_CELSIUS = 273.15f;
+constexpr int MUESTRAS_PROMEDIO_TEMPERATURA = 16; // Lecturas seguidas que se promedian en cada medicion.
 
 // ******************** Umbrales de temperatura ********************//
 constexpr float TEMP_ALTA_C = 50.0f, TEMP_NORMAL_C = 30.0f, TEMP_CRITICA_C = 75.0f;
@@ -43,10 +48,12 @@ constexpr float MILISEGUNDOS_POR_HORA = 3600000.0f;
 constexpr byte RESOLUCION_PWM_CARGA_BITS = 8;
 constexpr uint32_t FRECUENCIA_PWM_CARGA_HZ = 5000;
 constexpr int POTENCIA_CARGA_APAGADA = 0, POTENCIA_CARGA_MAXIMA = 255;
+constexpr int PORCENTAJE_CARGA_MINIMO = 0, PORCENTAJE_CARGA_MAXIMO = 100;
 
 // ******************** Temporizacion ********************//
 constexpr unsigned long PERIODO_FSM_MS = 50, PERIODO_DISPLAY_MS = 500, PERIODO_SERIAL_MS = 20;
 constexpr unsigned long TIMEOUT_SIN_USO_MS = 10000;
+constexpr unsigned long PERIODO_TELEMETRIA_MS = 1000;
 
 // ******************** LCD ********************//
 constexpr byte LCD_COLUMNAS = 16, LCD_FILAS = 2;
@@ -59,9 +66,25 @@ constexpr size_t TAMANO_BUFFER_COMANDO = 48;
 
 // ******************** FreeRTOS: colas y tareas ********************//
 constexpr byte LARGO_COLA_EVENTOS = 8;
+constexpr byte LARGO_COLA_INSTANTANEA = 1; // Guarda solo el ultimo dato (se usa con xQueueOverwrite).
+constexpr byte LARGO_COLA_PUBLICACIONES = 32;
 constexpr TickType_t ESPERA_COLA_SIN_BLOQUEO_TICKS = 0;
-constexpr uint32_t TAMANO_PILA_TAREA_SERIAL = 3072, TAMANO_PILA_TAREA_FSM = 4096;
-constexpr UBaseType_t PRIORIDAD_TAREA_SERIAL = 1, PRIORIDAD_TAREA_FSM = 2;
+constexpr uint32_t TAMANO_PILA_TAREA_SERIAL = 3072, TAMANO_PILA_TAREA_FSM = 4096, TAMANO_PILA_TAREA_RED = 8192;
+constexpr UBaseType_t PRIORIDAD_TAREA_SERIAL = 1, PRIORIDAD_TAREA_FSM = 2, PRIORIDAD_TAREA_RED = 1;
+
+// ******************** Red WiFi / MQTT ********************//
+constexpr size_t LARGO_MAXIMO_ID = 40;              // Caracteres del id de un comando (+1 en los arrays por el '\0').
+constexpr size_t LARGO_MAXIMO_COMANDO_MQTT = 256;   // Bytes de un comando JSON (+1 en el buffer por el '\0').
+constexpr size_t LARGO_ID_ARRANQUE = 16;            // 16 digitos hexadecimales (+1 en el array por el '\0').
+constexpr size_t TAMANO_TOPIC_MQTT = 128;
+constexpr size_t CANTIDAD_COMANDOS_RECORDADOS = 32; // Respuestas guardadas para contestar comandos repetidos.
+constexpr unsigned long TIMEOUT_RED_MS = 1000;            // Conexion y lectura del socket.
+constexpr unsigned long TIMEOUT_LECTURA_COMANDO_MS = 1000;
+constexpr unsigned long ESPERA_BYTE_COMANDO_MS = 1;
+constexpr unsigned long KEEPALIVE_MQTT_MS = 10000;
+constexpr unsigned long PERIODO_REINTENTO_WIFI_MS = 10000, PERIODO_REINTENTO_MQTT_MS = 2000;
+constexpr unsigned long PERIODO_TAREA_RED_MS = 10;
+constexpr char MENSAJE_ESTADO_OFFLINE[] = "offline"; // Last Will: lo publica el broker si se corta la conexion.
 
 enum Estado { DISPONIBLE, ACTIVO, DESHABILITADO, ENFRIAMIENTO };
 enum Evento { AUTORIZACION, FINALIZAR_USO, RECARGAR, CREDITO_AGOTADO, TIMEOUT_SIN_USO,
@@ -72,7 +95,7 @@ enum ZonaTemperatura { ZONA_DESCONOCIDA, ZONA_NORMAL, ZONA_INTERMEDIA, ZONA_ALTA
 struct Mensaje {
   Evento evento;
   float creditoWh;
-  char id[41] = {};  // Vacio = evento local/Serial.
+  char id[LARGO_MAXIMO_ID + 1] = {};  // Vacio = evento local/Serial.
   int porcentaje = 0;
   float temperaturaSimulada = 0.0f;
 };
@@ -89,7 +112,7 @@ enum TipoPublicacion { CONFIRMACION, NOTIFICACION };
 struct Publicacion {
   TipoPublicacion tipo;
   Instantanea datos;
-  char id[41];
+  char id[LARGO_MAXIMO_ID + 1];
   const char *resultado;
   const char *motivo;
   Evento evento;
@@ -175,14 +198,15 @@ float saldoAnteriorWh = 0.0f;
 
 // Compartidas por colas; el cliente MQTT pertenece exclusivamente a tareaRed.
 QueueHandle_t colaInstantanea, colaTelemetria, colaPublicaciones;
-char idArranque[17];
+char idArranque[LARGO_ID_ARRANQUE + 1];
 WiFiClient transporte;
 MqttClient mqtt(transporte);
-char topicComandos[128], topicTelemetria[128], topicEventos[128], topicAck[128], topicEstado[128];
+char topicComandos[TAMANO_TOPIC_MQTT], topicTelemetria[TAMANO_TOPIC_MQTT], topicEventos[TAMANO_TOPIC_MQTT],
+     topicAck[TAMANO_TOPIC_MQTT], topicEstado[TAMANO_TOPIC_MQTT];
 uint32_t publicacionesPerdidas = 0; // Solo escritura desde FSM.
 
 // Cache utilizada solamente en setup (antes de las tareas) y en tareaFSM.
-ComandoRecordado comandosRecordados[32];
+ComandoRecordado comandosRecordados[CANTIDAD_COMANDOS_RECORDADOS];
 size_t proximoComando = 0;
 uint32_t ultimaTelemetria = 0;
 
@@ -214,7 +238,7 @@ void actualizarDisplay() {
 // ---------------------------------------------------------------------------
 
 void encenderCarga() {
-  ledcWrite(PIN_PWM_CARGA, map(porcentajeCarga, 0, 100, POTENCIA_CARGA_APAGADA, POTENCIA_CARGA_MAXIMA));
+  ledcWrite(PIN_PWM_CARGA, map(porcentajeCarga, PORCENTAJE_CARGA_MINIMO, PORCENTAJE_CARGA_MAXIMO, POTENCIA_CARGA_APAGADA, POTENCIA_CARGA_MAXIMA));
   digitalWrite(PIN_LED_CARGA, porcentajeCarga > 0 ? HIGH : LOW);
 }
 
@@ -284,10 +308,10 @@ float leerAcsMv() {
 
 void calibrarCorriente() {
   Serial.println("Calibrando ACS712: rele OFF, PWM 0...");
-  delay(1500);
+  delay(ESPERA_CALIBRACION_MS);
   float suma = 0.0f;
-  for (int i = 0; i < 10; ++i) suma += leerAcsMv();
-  const float mv = suma / 10;
+  for (int i = 0; i < MUESTRAS_CALIBRACION; ++i) suma += leerAcsMv();
+  const float mv = suma / MUESTRAS_CALIBRACION;
   if (mv < MV_MIN_SENSOR) {
     Serial.printf("ACS ERROR: %.0f mV; revisar alimentacion y reiniciar para calibrar.\n", mv);
     return;
@@ -299,8 +323,8 @@ void calibrarCorriente() {
 float leerTemperatura() {
   if (simularTemperatura) return temperaturaSimuladaC;
   long sumaTemperatura = 0;
-  for (int i = 0; i < 16; ++i) sumaTemperatura += analogRead(PIN_TEMPERATURA);
-  return convertirTemperatura(sumaTemperatura / 16);
+  for (int i = 0; i < MUESTRAS_PROMEDIO_TEMPERATURA; ++i) sumaTemperatura += analogRead(PIN_TEMPERATURA);
+  return convertirTemperatura(sumaTemperatura / MUESTRAS_PROMEDIO_TEMPERATURA);
 }
 
 float leerCorriente() {
@@ -759,7 +783,7 @@ void setup() {
   pinMode(PIN_LED_CARGA, OUTPUT);
   pinMode(PIN_CORRIENTE, INPUT);
   pinMode(PIN_TEMPERATURA, INPUT);
-  analogReadResolution(12);
+  analogReadResolution(RESOLUCION_ADC_BITS);
   analogSetPinAttenuation(PIN_CORRIENTE, ADC_11db);
   analogSetPinAttenuation(PIN_TEMPERATURA, ADC_11db);
 
@@ -769,7 +793,7 @@ void setup() {
   calibrarCorriente();
   leerSensores();
 
-  Wire.begin(21, 22);
+  Wire.begin(PIN_SDA_LCD, PIN_SCL_LCD);
   lcd.begin(LCD_COLUMNAS, LCD_FILAS);
   aplicarColorEstado();
   actualizarDisplay();
@@ -778,16 +802,16 @@ void setup() {
   colaEventos = xQueueCreate(LARGO_COLA_EVENTOS, sizeof(Mensaje));
   configASSERT(colaEventos);
 
-  colaInstantanea = xQueueCreate(1, sizeof(Instantanea));
-  colaTelemetria = xQueueCreate(1, sizeof(Instantanea));
-  colaPublicaciones = xQueueCreate(32, sizeof(Publicacion));
+  colaInstantanea = xQueueCreate(LARGO_COLA_INSTANTANEA, sizeof(Instantanea));
+  colaTelemetria = xQueueCreate(LARGO_COLA_INSTANTANEA, sizeof(Instantanea));
+  colaPublicaciones = xQueueCreate(LARGO_COLA_PUBLICACIONES, sizeof(Publicacion));
   configASSERT(colaInstantanea && colaTelemetria && colaPublicaciones);
   snprintf(idArranque, sizeof(idArranque), "%08lx%08lx", (unsigned long)esp_random(), (unsigned long)esp_random());
   actualizarInstantanea();
   Serial.println("Comandos por linea: c <Wh>, a, f, d, h, p <0..100>, t <-40..125>, t real");
   xTaskCreate(tareaSerial, "Serial", TAMANO_PILA_TAREA_SERIAL, nullptr, PRIORIDAD_TAREA_SERIAL, nullptr);
   xTaskCreate(tareaFSM, "FSM", TAMANO_PILA_TAREA_FSM, nullptr, PRIORIDAD_TAREA_FSM, nullptr);
-  xTaskCreate(tareaRed, "Red", 8192, nullptr, 1, nullptr);
+  xTaskCreate(tareaRed, "Red", TAMANO_PILA_TAREA_RED, nullptr, PRIORIDAD_TAREA_RED, nullptr);
 }
 
 void loop() {
@@ -857,7 +881,7 @@ inline bool tokensJsonValidos(const char *s, size_t n) {
 }
 
 inline bool idValido(const JsonString &id) {
-  if (!id.c_str() || !id.size() || id.size() > 40) return false;
+  if (!id.c_str() || !id.size() || id.size() > LARGO_MAXIMO_ID) return false;
   for (size_t i = 0; i < id.size(); ++i) {
     const char c = id.c_str()[i];
     if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
@@ -868,7 +892,7 @@ inline bool idValido(const JsonString &id) {
 
 inline ComandoParseado parsearComando(const char *entrada, size_t longitud, bool retained) {
   ComandoParseado salida;
-  if (!longitud || longitud > 256) { salida.error = retained ? "retained_command" : "invalid_format"; return salida; }
+  if (!longitud || longitud > LARGO_MAXIMO_COMANDO_MQTT) { salida.error = retained ? "retained_command" : "invalid_format"; return salida; }
   JsonDocument json;
   LectorComando lector{entrada, longitud};
   bool invalido = !tokensJsonValidos(entrada, longitud) || deserializeJson(json, lector) || !json.is<JsonObject>();
@@ -947,20 +971,20 @@ void rechazarRed(const char *id, const char *motivo) {
   if (id) strlcpy(p.id, id, sizeof(p.id));
   p.resultado = "rejected";
   p.motivo = motivo;
-  xQueuePeek(colaInstantanea, &p.datos, 0);
+  xQueuePeek(colaInstantanea, &p.datos, ESPERA_COLA_SIN_BLOQUEO_TICKS);
   // El callback puede ejecutarse dentro de endMessage(): diferir la publicacion.
-  xQueueSend(colaPublicaciones, &p, 0);
+  xQueueSend(colaPublicaciones, &p, ESPERA_COLA_SIN_BLOQUEO_TICKS);
 }
 
 void recibirComando(int longitud) {
   // No publicar dentro del callback: endMessage() llama poll() y puede reentrar.
   const bool retained = mqtt.messageRetain() == 1;
-  char entrada[257];
+  char entrada[LARGO_MAXIMO_COMANDO_MQTT + 1];
   size_t usados = 0;
   const uint32_t inicio = millis();
-  while (usados < (size_t)longitud && millis() - inicio < 1000) {
+  while (usados < (size_t)longitud && millis() - inicio < TIMEOUT_LECTURA_COMANDO_MS) {
     const int c = mqtt.read();
-    if (c < 0) { vTaskDelay(pdMS_TO_TICKS(1)); continue; }
+    if (c < 0) { vTaskDelay(pdMS_TO_TICKS(ESPERA_BYTE_COMANDO_MS)); continue; }
     if (usados < sizeof(entrada) - 1) entrada[usados] = (char)c;
     ++usados;
   }
@@ -968,7 +992,7 @@ void recibirComando(int longitud) {
   if (usados != (size_t)longitud) { rechazarRed(nullptr, "invalid_format"); mqtt.stop(); return; }
   const ComandoParseado comando = parsearComando(entrada, (size_t)longitud, retained);
   if (comando.error) { rechazarRed(comando.mensaje.id, comando.error); return; }
-  if (xQueueSend(colaEventos, &comando.mensaje, 0) != pdTRUE) rechazarRed(comando.mensaje.id, "queue_full");
+  if (xQueueSend(colaEventos, &comando.mensaje, ESPERA_COLA_SIN_BLOQUEO_TICKS) != pdTRUE) rechazarRed(comando.mensaje.id, "queue_full");
 }
 
 void tareaRed(void *) {
@@ -979,34 +1003,34 @@ void tareaRed(void *) {
   snprintf(topicEstado, sizeof(topicEstado), "%s/device/status", POWERSHARE_MQTT_PREFIX);
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
-  transporte.setConnectionTimeout(1000);
-  transporte.setTimeout(1000);
+  transporte.setConnectionTimeout(TIMEOUT_RED_MS);
+  transporte.setTimeout(TIMEOUT_RED_MS);
   mqtt.setId(POWERSHARE_MQTT_USER "-" POWERSHARE_MQTT_PREFIX);
   mqtt.setUsernamePassword(POWERSHARE_MQTT_USER, POWERSHARE_MQTT_PASSWORD);
   mqtt.setCleanSession(true);
   mqtt.onMessage(recibirComando);
-  mqtt.setKeepAliveInterval(10000);
-  mqtt.setConnectionTimeout(1000);
-  mqtt.beginWill(topicEstado, (unsigned short)7, true, 1);
-  mqtt.print("offline"); mqtt.endWill();
-  uint32_t ultimoWifi = millis() - 10000, ultimoMqtt = millis() - 2000;
+  mqtt.setKeepAliveInterval(KEEPALIVE_MQTT_MS);
+  mqtt.setConnectionTimeout(TIMEOUT_RED_MS);
+  mqtt.beginWill(topicEstado, (unsigned short)strlen(MENSAJE_ESTADO_OFFLINE), true, 1);
+  mqtt.print(MENSAJE_ESTADO_OFFLINE); mqtt.endWill();
+  uint32_t ultimoWifi = millis() - PERIODO_REINTENTO_WIFI_MS, ultimoMqtt = millis() - PERIODO_REINTENTO_MQTT_MS;
   bool conectadoAntes = false;
   for (;;) {
     if (WiFi.status() != WL_CONNECTED) {
       if (conectadoAntes) { transporte.stop(); conectadoAntes = false; }
-      if (millis() - ultimoWifi >= 10000) {
+      if (millis() - ultimoWifi >= PERIODO_REINTENTO_WIFI_MS) {
         ultimoWifi = millis();
         WiFi.begin(POWERSHARE_WIFI_SSID, POWERSHARE_WIFI_PASSWORD);
       }
     } else if (!mqtt.connected()) {
       conectadoAntes = false;
-      if (millis() - ultimoMqtt >= 2000) {
+      if (millis() - ultimoMqtt >= PERIODO_REINTENTO_MQTT_MS) {
         ultimoMqtt = millis();
         if (mqtt.connect(POWERSHARE_MQTT_HOST, POWERSHARE_MQTT_PORT) && mqtt.subscribe(topicComandos, 1)) {
           mqtt.beginMessage(topicEstado, true, 1); mqtt.print("online"); mqtt.endMessage();
           conectadoAntes = true;
           Instantanea datos;
-          if (xQueuePeek(colaInstantanea, &datos, 0) == pdTRUE) xQueueOverwrite(colaTelemetria, &datos);
+          if (xQueuePeek(colaInstantanea, &datos, ESPERA_COLA_SIN_BLOQUEO_TICKS) == pdTRUE) xQueueOverwrite(colaTelemetria, &datos);
           Serial.println("[MQTT] Conectado y suscripto.");
         } else { mqtt.stop(); Serial.println("[MQTT] Sin conexion; reintentando."); }
       }
@@ -1014,9 +1038,9 @@ void tareaRed(void *) {
       mqtt.poll();
       // Una publicacion por vuelta: evita monopolizar la CPU y deja procesar comandos.
       Publicacion p;
-      if (xQueueReceive(colaPublicaciones, &p, 0) == pdTRUE && !publicarRespuesta(p)) mqtt.stop();
+      if (xQueueReceive(colaPublicaciones, &p, ESPERA_COLA_SIN_BLOQUEO_TICKS) == pdTRUE && !publicarRespuesta(p)) mqtt.stop();
       Instantanea datos;
-      if (mqtt.connected() && xQueueReceive(colaTelemetria, &datos, 0) == pdTRUE) {
+      if (mqtt.connected() && xQueueReceive(colaTelemetria, &datos, ESPERA_COLA_SIN_BLOQUEO_TICKS) == pdTRUE) {
         JsonDocument json; agregarDatos(json, datos);
         publicarJson(topicTelemetria, json, 0);
       }
@@ -1025,7 +1049,7 @@ void tareaRed(void *) {
       // No reproducir eventos viejos tras una desconexion; las respuestas quedan en cache FSM.
       xQueueReset(colaPublicaciones);
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(PERIODO_TAREA_RED_MS));
   }
 }
 
@@ -1040,14 +1064,14 @@ Instantanea tomarInstantanea() {
 void actualizarInstantanea() {
   const Instantanea datos = tomarInstantanea();
   xQueueOverwrite(colaInstantanea, &datos);
-  if (millis() - ultimaTelemetria >= 1000) {
+  if (millis() - ultimaTelemetria >= PERIODO_TELEMETRIA_MS) {
     ultimaTelemetria = millis();
     xQueueOverwrite(colaTelemetria, &datos);
   }
 }
 
 void enviarPublicacion(const Publicacion &p) {
-  if (xQueueSend(colaPublicaciones, &p, 0) != pdTRUE) {
+  if (xQueueSend(colaPublicaciones, &p, ESPERA_COLA_SIN_BLOQUEO_TICKS) != pdTRUE) {
     ++publicacionesPerdidas;
     Serial.printf("[MQTT] Cola de salida llena (%lu); FSM continua. Reintentar mismo id para recuperar ack.\n", (unsigned long)publicacionesPerdidas);
   }
@@ -1064,7 +1088,7 @@ void confirmarComando(const Mensaje &mensaje, const char *resultado, const char 
     comandosRecordados[proximoComando].ocupado = true;
     comandosRecordados[proximoComando].mensaje = mensaje;
     comandosRecordados[proximoComando].respuesta = p;
-    proximoComando = (proximoComando + 1) % 32;
+    proximoComando = (proximoComando + 1) % CANTIDAD_COMANDOS_RECORDADOS;
   }
   enviarPublicacion(p);
   xQueueOverwrite(colaTelemetria, &p.datos);
