@@ -149,16 +149,21 @@ Instantanea tomarInstantanea();
 void enviarPublicacion(const Publicacion &p);
 void confirmarComando(const Mensaje &mensaje, const char *resultado, const char *motivo, bool recordar = true);
 bool responderDuplicado(const Mensaje &mensaje);
-void observarEvento(const Mensaje &mensaje, Estado anterior);
+void encolarNotificacion(const Mensaje &mensaje, Estado anterior);
 void cambiarEstado(Estado nuevoEstado, Evento evento);
 ZonaTemperatura calcularZonaTemperatura();
 bool detectarCambioTemperatura(Evento &evento);
 Mensaje obtenerEvento();
-void procesarAutorizacion(Evento evento);
-void procesarEstadoDisponible(Evento evento);
-void procesarEstadoActivo(Evento evento);
-void procesarEstadoDeshabilitado(Evento evento);
-void procesarEstadoEnfriamiento(Evento evento);
+void procesarAjustarPwm(const Mensaje &mensaje);
+void procesarSimularTemperatura(float temperaturaSimulada);
+void procesarUsarSensorTemperatura();
+void actualizarConfiguracionTemperatura(const char *descripcion);
+void procesarRecarga(const Mensaje &mensaje);
+void procesarAutorizacion(const Mensaje &mensaje);
+void procesarEstadoDisponible(const Mensaje &mensaje);
+void procesarEstadoActivo(const Mensaje &mensaje);
+void procesarEstadoDeshabilitado(const Mensaje &mensaje);
+void procesarEstadoEnfriamiento(const Mensaje &mensaje);
 bool encolar(Evento evento, float creditoWh = 0.0f);
 bool encolarMensaje(const Mensaje &mensaje);
 void actualizarInstantanea();
@@ -452,36 +457,82 @@ Mensaje obtenerEvento() {
 // Transiciones
 // ---------------------------------------------------------------------------
 
-void procesarRecarga(float creditoWh) {
-  recargar(creditoWh);
+void procesarAjustarPwm(const Mensaje &mensaje) {
+  porcentajeCarga = mensaje.porcentaje;
+  if (estadoActual == ACTIVO || estadoActual == ENFRIAMIENTO) encenderCarga();
+  Serial.printf("Carga configurada: %d %% (PWM real: %lu/255).\n",
+                porcentajeCarga, (unsigned long)ledcRead(PIN_PWM_CARGA));
+  if (mensaje.id[0]) confirmarComando(mensaje, "applied", "ok");
+}
+
+void procesarSimularTemperatura(float temperaturaSimulada) {
+  simularTemperatura = true;
+  temperaturaSimuladaC = temperaturaSimulada;
+  actualizarConfiguracionTemperatura("simulada");
+}
+
+void procesarUsarSensorTemperatura() {
+  simularTemperatura = false;
+  actualizarConfiguracionTemperatura("del sensor");
+}
+
+void actualizarConfiguracionTemperatura(const char *descripcion) {
+  temperaturaC = leerTemperatura();
+  Serial.printf("Temperatura %s: %.1f C.\n", descripcion, temperaturaC);
+  actualizarDisplay();
+  const Instantanea datos = tomarInstantanea();
+  xQueueOverwrite(colaTelemetria, &datos);
+}
+
+void procesarRecarga(const Mensaje &mensaje) {
+  if (mensaje.id[0] && !isfinite(saldoWh + mensaje.creditoWh)) {
+    confirmarComando(mensaje, "rejected", "invalid_format");
+    return;
+  }
+  recargar(mensaje.creditoWh);
+  if (mensaje.id[0]) confirmarComando(mensaje, "applied", "ok");
 }
 
 void procesarActualizacionDisplay() {
   actualizarDisplay();
 }
 
-void procesarAutorizacion(Evento evento) {
+void procesarAutorizacion(const Mensaje &mensaje) {
   if (saldoWh > 0.0f) {
-    cambiarEstado(ACTIVO, evento);
+    const Estado anterior = estadoActual;
+    cambiarEstado(ACTIVO, mensaje.evento);
+    if (mensaje.id[0]) confirmarComando(mensaje, "applied", "ok");
+    encolarNotificacion(mensaje, anterior);
     return;
   }
   Serial.println("Saldo insuficiente: recargue con 'c <Wh>'.");
+  if (mensaje.id[0]) confirmarComando(mensaje, "rejected", "no_credit");
 }
 
-void procesarEstadoDisponible(Evento evento) {
-  cambiarEstado(DISPONIBLE, evento);
+void procesarEstadoDisponible(const Mensaje &mensaje) {
+  const Estado anterior = estadoActual;
+  cambiarEstado(DISPONIBLE, mensaje.evento);
+  if (mensaje.id[0]) confirmarComando(mensaje, "applied", "ok");
+  encolarNotificacion(mensaje, anterior);
 }
 
-void procesarEstadoActivo(Evento evento) {
-  cambiarEstado(ACTIVO, evento);
+void procesarEstadoActivo(const Mensaje &mensaje) {
+  const Estado anterior = estadoActual;
+  cambiarEstado(ACTIVO, mensaje.evento);
+  encolarNotificacion(mensaje, anterior);
 }
 
-void procesarEstadoDeshabilitado(Evento evento) {
-  cambiarEstado(DESHABILITADO, evento);
+void procesarEstadoDeshabilitado(const Mensaje &mensaje) {
+  const Estado anterior = estadoActual;
+  cambiarEstado(DESHABILITADO, mensaje.evento);
+  if (mensaje.id[0]) confirmarComando(mensaje, "applied", "ok");
+  encolarNotificacion(mensaje, anterior);
 }
 
-void procesarEstadoEnfriamiento(Evento evento) {
-  cambiarEstado(ENFRIAMIENTO, evento);
+void procesarEstadoEnfriamiento(const Mensaje &mensaje) {
+  const Estado anterior = estadoActual;
+  cambiarEstado(ENFRIAMIENTO, mensaje.evento);
+  encolarNotificacion(mensaje, anterior);
 }
 
 void registrarEstadoInesperado() {
@@ -492,30 +543,7 @@ void maquinaEstados() {
   const Mensaje mensaje = obtenerEvento();
   const Estado estadoAntes = estadoActual;
   if (mensaje.id[0] && responderDuplicado(mensaje)) return;
-  if (mensaje.id[0] && mensaje.evento == RECARGAR && !isfinite(saldoWh + mensaje.creditoWh)) {
-    confirmarComando(mensaje, "rejected", "invalid_format");
-    return;
-  }
-  if (mensaje.evento == AJUSTAR_PWM) {
-    porcentajeCarga = mensaje.porcentaje;
-    if (estadoActual == ACTIVO || estadoActual == ENFRIAMIENTO) encenderCarga();
-    Serial.printf("Carga configurada: %d %% (PWM real: %lu/255).\n", porcentajeCarga, (unsigned long)ledcRead(PIN_PWM_CARGA));
-    observarEvento(mensaje, estadoAntes);
-    return;
-  }
-  if (mensaje.evento == SIMULAR_TEMPERATURA || mensaje.evento == USAR_SENSOR_TEMPERATURA) {
-    simularTemperatura = mensaje.evento == SIMULAR_TEMPERATURA;
-    if (simularTemperatura) temperaturaSimuladaC = mensaje.temperaturaSimulada;
-    temperaturaC = leerTemperatura();
-    // La deteccion normal de zonas genera el evento termico en el siguiente ciclo.
-    Serial.printf("Temperatura %s: %.1f C.\n", simularTemperatura ? "simulada" : "del sensor", temperaturaC);
-    actualizarDisplay();
-    const Instantanea datos = tomarInstantanea();
-    xQueueOverwrite(colaTelemetria, &datos);
-    observarEvento(mensaje, estadoAntes);
-    return;
-  }
-
+  
   switch (estadoActual) {
     case DISPONIBLE:
       switch (mensaje.evento) {
@@ -523,20 +551,36 @@ void maquinaEstados() {
           apagarCarga();
           apagarCooler();
           break;
+        case AJUSTAR_PWM:
+          procesarAjustarPwm(mensaje);
+          break;
+        case SIMULAR_TEMPERATURA:
+          procesarSimularTemperatura(mensaje.temperaturaSimulada);
+          break;
+        case USAR_SENSOR_TEMPERATURA:
+          procesarUsarSensorTemperatura();
+          break;
         case AUTORIZACION:
-          procesarAutorizacion(mensaje.evento);
+          procesarAutorizacion(mensaje);
           break;
         case RECARGAR:
-          procesarRecarga(mensaje.creditoWh);
+          procesarRecarga(mensaje);
           break;
         case DESHABILITADO_MANUAL:
-          procesarEstadoDeshabilitado(mensaje.evento);
+          procesarEstadoDeshabilitado(mensaje);
+          break;
+        case CREDITO_AGOTADO:
+        case TEMPERATURA_ALTA:
+        case TEMPERATURA_NORMAL:
+        case TEMPERATURA_CRITICA:
+          encolarNotificacion(mensaje, estadoAntes);
           break;
         case ACTUALIZAR_DISPLAY:
           procesarActualizacionDisplay();
           break;
         default:
-          break;  // Evento no configurado en este estado: no se hace nada.
+          if (mensaje.id[0]) confirmarComando(mensaje, "rejected", "invalid_state");
+          break;
       }
       break;
 
@@ -547,32 +591,45 @@ void maquinaEstados() {
           apagarCooler();
           descontarSaldo();
           break;
+        case AJUSTAR_PWM:
+          procesarAjustarPwm(mensaje);
+          break;
+        case SIMULAR_TEMPERATURA:
+          procesarSimularTemperatura(mensaje.temperaturaSimulada);
+          break;
+        case USAR_SENSOR_TEMPERATURA:
+          procesarUsarSensorTemperatura();
+          break;
         case FINALIZAR_USO:
-          procesarEstadoDisponible(mensaje.evento);
+          procesarEstadoDisponible(mensaje);
           break;
         case RECARGAR:
-          procesarRecarga(mensaje.creditoWh);
+          procesarRecarga(mensaje);
           break;
         case CREDITO_AGOTADO:
-          procesarEstadoDisponible(mensaje.evento);
+          procesarEstadoDisponible(mensaje);
           break;
         case TIMEOUT_SIN_USO:
-          procesarEstadoDisponible(mensaje.evento);
+          procesarEstadoDisponible(mensaje);
           break;
         case DESHABILITADO_MANUAL:
-          procesarEstadoDeshabilitado(mensaje.evento);
+          procesarEstadoDeshabilitado(mensaje);
           break;
         case TEMPERATURA_ALTA:
-          procesarEstadoEnfriamiento(mensaje.evento);
+          procesarEstadoEnfriamiento(mensaje);
+          break;
+        case TEMPERATURA_NORMAL:
+          encolarNotificacion(mensaje, estadoAntes);
           break;
         case TEMPERATURA_CRITICA:
-          procesarEstadoDeshabilitado(mensaje.evento);
+          procesarEstadoDeshabilitado(mensaje);
           break;
         case ACTUALIZAR_DISPLAY:
           procesarActualizacionDisplay();
           break;
         default:
-          break;  // Evento no configurado en este estado: no se hace nada.
+          if (mensaje.id[0]) confirmarComando(mensaje, "rejected", "invalid_state");
+          break;
       }
       break;
 
@@ -582,17 +639,33 @@ void maquinaEstados() {
           apagarCarga();
           apagarCooler();
           break;
+        case AJUSTAR_PWM:
+          procesarAjustarPwm(mensaje);
+          break;
+        case SIMULAR_TEMPERATURA:
+          procesarSimularTemperatura(mensaje.temperaturaSimulada);
+          break;
+        case USAR_SENSOR_TEMPERATURA:
+          procesarUsarSensorTemperatura();
+          break;
         case RECARGAR:
-          procesarRecarga(mensaje.creditoWh);
+          procesarRecarga(mensaje);
           break;
         case HABILITADO_MANUAL:
-          procesarEstadoDisponible(mensaje.evento);
+          procesarEstadoDisponible(mensaje);
+          break;
+        case CREDITO_AGOTADO:
+        case TEMPERATURA_ALTA:
+        case TEMPERATURA_NORMAL:
+        case TEMPERATURA_CRITICA:
+          encolarNotificacion(mensaje, estadoAntes);
           break;
         case ACTUALIZAR_DISPLAY:
           procesarActualizacionDisplay();
           break;
         default:
-          break;  // Evento no configurado en este estado: no se hace nada.
+          if (mensaje.id[0]) confirmarComando(mensaje, "rejected", "invalid_state");
+          break;
       }
       break;
 
@@ -603,40 +676,53 @@ void maquinaEstados() {
           regularCooler();
           descontarSaldo();
           break;
+        case AJUSTAR_PWM:
+          procesarAjustarPwm(mensaje);
+          break;
+        case SIMULAR_TEMPERATURA:
+          procesarSimularTemperatura(mensaje.temperaturaSimulada);
+          break;
+        case USAR_SENSOR_TEMPERATURA:
+          procesarUsarSensorTemperatura();
+          break;
         case FINALIZAR_USO:
-          procesarEstadoDisponible(mensaje.evento);
+          procesarEstadoDisponible(mensaje);
           break;
         case RECARGAR:
-          procesarRecarga(mensaje.creditoWh);
+          procesarRecarga(mensaje);
           break;
         case CREDITO_AGOTADO:
-          procesarEstadoDisponible(mensaje.evento);
+          procesarEstadoDisponible(mensaje);
           break;
         case TIMEOUT_SIN_USO:
-          procesarEstadoDisponible(mensaje.evento);
+          procesarEstadoDisponible(mensaje);
           break;
         case DESHABILITADO_MANUAL:
-          procesarEstadoDeshabilitado(mensaje.evento);
+          procesarEstadoDeshabilitado(mensaje);
+          break;
+        case TEMPERATURA_ALTA:
+          encolarNotificacion(mensaje, estadoAntes);
           break;
         case TEMPERATURA_NORMAL:
-          procesarEstadoActivo(mensaje.evento);
+          procesarEstadoActivo(mensaje);
           break;
         case TEMPERATURA_CRITICA:
-          procesarEstadoDeshabilitado(mensaje.evento);
+          procesarEstadoDeshabilitado(mensaje);
           break;
         case ACTUALIZAR_DISPLAY:
           procesarActualizacionDisplay();
           break;
         default:
-          break;  // Evento no configurado en este estado: no se hace nada.
+          if (mensaje.id[0]) confirmarComando(mensaje, "rejected", "invalid_state");
+          break;
       }
       break;
 
     default:
       registrarEstadoInesperado();
+      if (mensaje.id[0]) confirmarComando(mensaje, "rejected", "invalid_state");
       break;
   }
-  observarEvento(mensaje, estadoAntes);
 }
 
 bool encolar(Evento evento, float creditoWh) {
@@ -1111,26 +1197,12 @@ bool responderDuplicado(const Mensaje &mensaje) {
   return false;
 }
 
-void observarEvento(const Mensaje &mensaje, Estado anterior) {
-  if (mensaje.id[0]) {
-    // Describe el resultado de la tabla original; no agrega transiciones ni salidas.
-    const bool aplicable = mensaje.evento == RECARGAR || mensaje.evento == AJUSTAR_PWM ||
-      (mensaje.evento == AUTORIZACION && anterior == DISPONIBLE) ||
-      (mensaje.evento == FINALIZAR_USO && (anterior == ACTIVO || anterior == ENFRIAMIENTO)) ||
-      (mensaje.evento == DESHABILITADO_MANUAL && anterior != DESHABILITADO) ||
-      (mensaje.evento == HABILITADO_MANUAL && anterior == DESHABILITADO);
-    const bool sinSaldo = mensaje.evento == AUTORIZACION && anterior == DISPONIBLE && saldoWh <= 0;
-    confirmarComando(mensaje, aplicable && !sinSaldo ? "applied" : "rejected",
-                     sinSaldo ? "no_credit" : aplicable ? "ok" : "invalid_state");
-  }
-  if (anterior != estadoActual || mensaje.evento == CREDITO_AGOTADO ||
-      mensaje.evento == TEMPERATURA_ALTA || mensaje.evento == TEMPERATURA_NORMAL || mensaje.evento == TEMPERATURA_CRITICA) {
-    Publicacion p = {};
-    p.tipo = NOTIFICACION;
-    p.datos = tomarInstantanea();
-    p.evento = mensaje.evento;
-    p.anterior = anterior;
-    enviarPublicacion(p);
-  }
+void encolarNotificacion(const Mensaje &mensaje, Estado anterior) {
+  Publicacion p = {};
+  p.tipo = NOTIFICACION;
+  p.datos = tomarInstantanea();
+  p.evento = mensaje.evento;
+  p.anterior = anterior;
+  enviarPublicacion(p);
 }
 
