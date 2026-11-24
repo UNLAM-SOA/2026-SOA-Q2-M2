@@ -1,0 +1,33 @@
+<resources>
+    <string name="app_name">PowerShare</string>
+    <string name="powershare">PowerShare</string>
+    <string name="sin_conexion">Sin conexión</string>
+    <string name="conectar">Conectar</string>
+    <string name="desconectar">Desconectar</string>
+    <string name="estado_sin_datos">Estado sin datos</string>
+    <string name="energia_disponible">Energía disponible</string>
+    <string name="saldo_sin_datos">— Wh</string>
+    <string name="mediciones_sin_datos">Corriente: — A\nTemperatura: — °C</string>
+    <string name="esperando_mediciones">Esperando mediciones del equipo</string>
+    <string name="recargar_energia">Cargar crédito</string>
+    <string name="iniciar_uso">Iniciar uso</string>
+    <string name="finalizar_uso">Finalizar uso</string>
+    <string name="revisar_operacion">Revisar operación</string>
+    <string name="administracion">Administración</string>
+    <string name="deshabilitar_equipo">Deshabilitar equipo</string>
+    <string name="habilitar_equipo">Habilitar equipo</string>
+    <string name="escanear_qr">Escanear QR</string>
+    <string name="cargar_celular">Cargar celular (50%)</string>
+    <string name="cargar_computadora">Cargar computadora (100%)</string>
+    <string name="vinculacion_subtitulo">Vinculación con el equipo</string>
+    <string name="estado_conexion">Estado de la conexión</string>
+    <string name="guia_vinculacion">Escaneá el código QR de la maqueta PowerShare para conectarte. El celular debe estar en la misma red Wi-Fi que el equipo.</string>
+    <string name="guia_conectando">Conectando con el equipo…</string>
+    <string name="guia_vinculado">Equipo vinculado. Abrí el panel para ver las mediciones y controlar la carga.</string>
+    <string name="abrir_panel">Ir al panel de control</string>
+    <string name="panel_titulo">Panel de control</string>
+    <string name="sensor_movimiento">Sensor de movimiento</string>
+    <string name="shake_switch">Agitar para iniciar o finalizar el uso</string>
+    <string name="shake_ayuda">Usa el acelerómetro del celular: agitá el celular varias veces seguidas para iniciar el uso si el equipo está disponible, o para finalizarlo si está en uso. Un golpe aislado no cuenta.</string>
+    <string name="shake_sin_sensor">Este dispositivo no tiene acelerómetro.</string>
+</resources>
