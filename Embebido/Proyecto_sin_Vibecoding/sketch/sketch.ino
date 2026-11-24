@@ -176,8 +176,7 @@ const char *NOMBRE_EVENTO[] = { "AUTORIZACION", "FINALIZAR_USO", "RECARGAR", "CR
   "ACTUALIZAR_DISPLAY", "CONTINUE", "AJUSTAR_PWM", "SIMULAR_TEMPERATURA", "USAR_SENSOR_TEMPERATURA" };
 // Abreviaturas para que entren en las 16 columnas del LCD.
 const char *NOMBRE_ESTADO_LCD[] = { "DISP", "ACT", "DESH", "ENFR" };
-// Color del backlight por estado, en el orden del enum Estado. Tonos claros y
-// brillantes: las letras del Grove LCD son oscuras y necesitan fondo luminoso.
+// Color del backlight por estado, en el orden del enum Estado.
 struct ColorLcd { byte rojo, verde, azul; };
 constexpr ColorLcd COLOR_ESTADO_LCD[] = {
   { 0, 180, 255 },   // DISPONIBLE: celeste.
@@ -238,9 +237,7 @@ void actualizarDisplay() {
   lcd.print(linea);
 }
 
-// ---------------------------------------------------------------------------
-// Acciones: no preguntan en que estado esta la maquina, solo hacen.
-// ---------------------------------------------------------------------------
+// ******************** ACCIONES ********************//
 
 void encenderCarga() {
   ledcWrite(PIN_PWM_CARGA, map(porcentajeCarga, PORCENTAJE_CARGA_MINIMO, PORCENTAJE_CARGA_MAXIMO, POTENCIA_CARGA_APAGADA, POTENCIA_CARGA_MAXIMA));
@@ -261,6 +258,7 @@ void regularCooler() {
 }
 
 // Consumo = 12 V x corriente x horas reales x 60. Solo con mas de 0,2 A.
+//Si el dispositivo detecta 10s con menos de 0,2A de consumo, se apaga.
 void descontarSaldo() {
   const unsigned long ahora = millis();
   const unsigned long transcurridoMs = ahora - ultimaMedicionCreditoMs;
@@ -301,9 +299,8 @@ void recargar(float creditoWh) {
   actualizarDisplay();
 }
 
-// ---------------------------------------------------------------------------
-// Deteccion de eventos: solo miran sensores, saldo y tiempo. Nunca estadoActual.
-// ---------------------------------------------------------------------------
+
+// ******************** Deteccion de eventos ********************//
 
 float leerAcsMv() {
   long suma = 0;
@@ -311,6 +308,7 @@ float leerAcsMv() {
   return (float)suma / MUESTRAS_ACS * FACTOR_ADC_ACS;
 }
 
+// Se usa para que la corriente no de valores anormales.
 void calibrarCorriente() {
   Serial.println("Calibrando ACS712: rele OFF, PWM 0...");
   delay(ESPERA_CALIBRACION_MS);
@@ -453,10 +451,8 @@ Mensaje obtenerEvento() {
   return { CONTINUE, 0.0f };
 }
 
-// ---------------------------------------------------------------------------
-// Transiciones
-// ---------------------------------------------------------------------------
 
+// ******************** Transiciones ********************//
 void procesarAjustarPwm(const Mensaje &mensaje) {
   porcentajeCarga = mensaje.porcentaje;
   if (estadoActual == ACTIVO || estadoActual == ENFRIAMIENTO) encenderCarga();
@@ -860,6 +856,8 @@ void tareaFSM(void *) {
     vTaskDelayUntil(&ultimaEjecucion, pdMS_TO_TICKS(PERIODO_FSM_MS));
   }
 }
+
+// ******************** Configuracion inicial del embebido ********************//
 
 void setup() {
   Serial.begin(VELOCIDAD_SERIAL_BPS);
